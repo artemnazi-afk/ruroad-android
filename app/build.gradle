@@ -1,0 +1,61 @@
+plugins {
+    id 'com.android.application'
+}
+
+import java.util.Properties
+
+def keystoreProps = new Properties()
+def keystorePropsFile = rootProject.file('keystore.properties')
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+def hasCustomKeystore = keystoreProps['storeFile'] != null
+
+android {
+    namespace 'ru.ruroad.karta'
+    compileSdk 34
+    buildToolsVersion "35.0.0"
+
+    defaultConfig {
+        applicationId "ru.ruroad.karta"
+        minSdk 24
+        targetSdk 34
+        versionCode 8
+        versionName "1.6"
+    }
+
+    signingConfigs {
+        release {
+            if (hasCustomKeystore) {
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+                storeFile rootProject.file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            // обе сборки подписываем одним ключом RuRoad — обновления без переустановки
+            if (hasCustomKeystore) {
+                signingConfig signingConfigs.release
+            }
+        }
+        release {
+            minifyEnabled false
+            if (hasCustomKeystore) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
