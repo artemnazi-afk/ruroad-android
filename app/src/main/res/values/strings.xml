@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">RuRoad Кадастр</string>
+    <string name="search_hint">Кадастровый номер или адрес</string>
+    <string name="search_button">Найти</string>
+    <string name="searching">Поиск на НСПД…</string>
+    <string name="search_error">Ошибка поиска</string>
+    <string name="search_empty">Ничего не найдено</string>
+    <string name="route_button">Маршрут</string>
+    <string name="map_button">На карте</string>
+    <string name="last_result">Последний найденный объект</string>
+    <string name="widget_hint">Кадастровый номер или адрес</string>
+    <string name="no_app_for_route">Не найдено приложение для навигации</string>
+    <string name="saved_to_downloads">Сохранено в Загрузки</string>
+    <string name="save_failed">Не удалось сохранить файл</string>
+</resources>

@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- фон задаётся adaptive-icon background, здесь только пин -->
+    <path
+        android:fillColor="#F5A623"
+        android:pathData="M54,30c-9.4,0 -17,7.6 -17,17c0,12.4 17,31 17,31s17,-18.6 17,-31c0,-9.4 -7.6,-17 -17,-17z" />
+    <path
+        android:fillColor="#14181F"
+        android:pathData="M54,56a7,7 0 1,1 0.001,0z" />
+</vector>

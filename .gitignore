@@ -1,0 +1,9 @@
+/build/
+/app/build/
+/local.properties
+/.gradle/
+*.iml
+
+# секреты подписи в публичном репозитории не публикуются
+keystore/
+keystore.properties
