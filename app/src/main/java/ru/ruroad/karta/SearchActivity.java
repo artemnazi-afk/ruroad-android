@@ -50,6 +50,8 @@ public class SearchActivity extends Activity {
 
     private EditText input;
     private ImageButton clearBtn;
+    private ImageButton clearFab;     // плавающий крестик в углу окна (над клавиатурой)
+    private ImageButton routeFab;     // плавающая кнопка маршрута (над кнопкой раскладки)
     private ImageButton btn;
     private Button kbToggle;
     private boolean kbManual;         // пользователь сам выбрал раскладку — авто-переключение off
@@ -146,23 +148,18 @@ public class SearchActivity extends Activity {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
                 clearBtn.setVisibility(s.length() > 0 ? View.VISIBLE : View.GONE);
+                if (clearFab != null)
+                    clearFab.setVisibility(s.length() > 0 ? View.VISIBLE : View.GONE);
                 if (s.length() == 0) kbManual = false;          // поле очищено — авто-режим снова
                 if (kbManual && s.length() > 0) return;         // раскладку выбрал сам пользователь
                 setKbMode(s.length() > 0 && Character.isDigit(s.charAt(0)));
             }
             @Override public void afterTextChanged(Editable s) {}
         });
-        clearBtn.setOnClickListener(v -> {
-            input.setText("");
-            input.requestFocus();
-            // виджет показывает этот запрос — очистили поле, очистилось и поле виджета
-            if (fromWidget) {
-                wQuery = "";
-                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                        .putString(SearchWidget.K_QUERY, "").apply();
-                SearchWidget.updateAll(this);
-            }
-        });
+        clearBtn.setOnClickListener(v -> clearInput());
+        clearFab = findViewById(R.id.clear_fab);
+        if (clearFab != null) clearFab.setOnClickListener(v -> clearInput());
+        routeFab = findViewById(R.id.route_fab); // слушатель ставится в updateRouteFab() под цель
         kbToggle = findViewById(R.id.kb_toggle);
         if (kbToggle != null) {
             updateKbToggle();
@@ -298,7 +295,37 @@ public class SearchActivity extends Activity {
         if (isCard) {
             fillCard(wResults.optJSONObject(wPicked));
         }
+        updateRouteFab();
         applyWindowSize();
+    }
+
+    /* плавающая кнопка маршрута: цель — объект карточки, иначе первый результат с координатами */
+    private void updateRouteFab() {
+        if (routeFab == null) return;
+        JSONObject target = null;
+        boolean isCard = "card".equals(wMode) && wPicked >= 0 && wPicked < wResults.length();
+        if (isCard) {
+            target = wResults.optJSONObject(wPicked);
+        } else {
+            for (int i = 0; i < wResults.length(); i++) {
+                JSONObject r = wResults.optJSONObject(i);
+                if (r != null && !Double.isNaN(r.optDouble("lat", Double.NaN))
+                        && !Double.isNaN(r.optDouble("lon", Double.NaN))) {
+                    target = r;
+                    break;
+                }
+            }
+        }
+        boolean ok = target != null && !Double.isNaN(target.optDouble("lat", Double.NaN))
+                && !Double.isNaN(target.optDouble("lon", Double.NaN));
+        routeFab.setVisibility(ok ? View.VISIBLE : View.GONE);
+        if (ok) {
+            final double lat = target.optDouble("lat");
+            final double lon = target.optDouble("lon");
+            String cad = target.optString("cad");
+            final String label = cad.isEmpty() ? target.optString("label") : cad;
+            routeFab.setOnClickListener(v -> openRouteGeo(lat, lon, label));
+        }
     }
 
     private void applyWindowSize() {
@@ -558,6 +585,19 @@ public class SearchActivity extends Activity {
             startActivity(new Intent(Intent.ACTION_VIEW, uri));
         } catch (Exception e) {
             Toast.makeText(this, R.string.no_app_for_route, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /* очистка поля: крестик в поле и плавающий крестик в углу окна.
+       Виджет показывает этот запрос — очистили поле, очистилось и поле виджета. */
+    private void clearInput() {
+        input.setText("");
+        input.requestFocus();
+        if (fromWidget) {
+            wQuery = "";
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putString(SearchWidget.K_QUERY, "").apply();
+            SearchWidget.updateAll(this);
         }
     }
 

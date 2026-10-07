@@ -92,8 +92,16 @@ public class SearchWidget extends AppWidgetProvider {
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             rv.setOnClickPendingIntent(R.id.widget_field, searchPi);
             rv.setOnClickPendingIntent(R.id.widget_find, searchPi);
-            rv.setTextViewText(R.id.widget_field,
-                    query.isEmpty() ? ctx.getString(R.string.widget_hint) : query);
+
+            // размер текста под ширину поля: autosize в RemoteViews не работает,
+            // подбираем программно — от 22sp вниз, пока текст не влезет
+            String text = query.isEmpty() ? ctx.getString(R.string.widget_hint) : query;
+            android.os.Bundle opts = mgr.getAppWidgetOptions(id);
+            float fieldDp = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250) - 88f;
+            float size = 22f;
+            while (size > 11f && text.length() * size * 0.58f > fieldDp) size -= 1f;
+            rv.setTextViewTextSize(R.id.widget_field, android.util.TypedValue.COMPLEX_UNIT_SP, size);
+            rv.setTextViewText(R.id.widget_field, text);
             rv.setTextColor(R.id.widget_field, query.isEmpty() ? 0xFF8B93A3 : 0xFFE8EAF0);
 
             mgr.updateAppWidget(id, rv);
