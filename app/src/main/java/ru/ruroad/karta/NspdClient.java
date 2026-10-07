@@ -45,6 +45,9 @@ public final class NspdClient {
     public static List<Result> search(String query) throws Exception {
         String q = query == null ? "" : query.trim();
         if (q.isEmpty()) return new ArrayList<>();
+        // кадастровый номер с любыми разделителями → «91:04:006001:368» (логика сайта)
+        String norm = normalizeCadQuery(q);
+        if (norm != null) q = norm;
         String url = String.format(Locale.US, API, URLEncoder.encode(q, "UTF-8"));
         JSONObject resp = fetchJson(url);
         JSONArray feats = resp.optJSONArray("features");
@@ -108,6 +111,32 @@ public final class NspdClient {
 
     public static boolean isCadQuery(String q) {
         return Pattern.compile("^\\d+\\s*:\\s*\\d+").matcher(q.trim()).find();
+    }
+
+    /**
+     * Нормализация кадастрового номера с «неправильными» разделителями
+     * (порт normalizeCadQuery из app/src/lib/addrSearch.ts):
+     * «91^04^006001^368», «91 04 006001 368», «91-04-006001-368» → «91:04:006001:368».
+     * Возвращает null, если строка не похожа на номер (буквы или одна группа цифр) —
+     * тогда это адресный запрос и трогать его не нужно.
+     */
+    public static String normalizeCadQuery(String qRaw) {
+        String t = qRaw == null ? "" : qRaw.trim();
+        if (t.isEmpty()) return null;
+        if (Pattern.compile("[a-zа-яё]", Pattern.CASE_INSENSITIVE).matcher(t).find()) return null;
+        if (!Character.isDigit(t.charAt(0))) return null;
+        String[] parts = t.split("[^0-9]+");
+        List<String> groups = new ArrayList<>();
+        for (String p : parts) {
+            if (!p.isEmpty()) groups.add(p);
+        }
+        if (groups.size() < 2) return null;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < groups.size(); i++) {
+            if (i > 0) sb.append(':');
+            sb.append(groups.get(i));
+        }
+        return sb.toString();
     }
 
     private static List<Result> cadResults(List<JSONObject> feats) {

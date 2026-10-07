@@ -14,7 +14,7 @@ import android.widget.Toast;
 import java.util.Locale;
 
 /**
- * Виджет 4×2: поле поиска → экран поиска; после выбора результата — карточка
+ * Виджет 4×2: поле поиска → плавающее окно поиска; после выбора результата — карточка
  * с кнопками «На карте» и «Маршрут».
  */
 public class SearchWidget extends AppWidgetProvider {
@@ -42,7 +42,9 @@ public class SearchWidget extends AppWidgetProvider {
         for (int id : ids) {
             RemoteViews rv = new RemoteViews(ctx.getPackageName(), R.layout.widget_search);
 
+            // поиск из виджета — плавающее окно, не на весь экран
             Intent search = new Intent(ctx, SearchActivity.class);
+            search.putExtra(SearchActivity.EXTRA_DIALOG, true);
             PendingIntent searchPi = PendingIntent.getActivity(ctx, 0, search,
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 

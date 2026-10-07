@@ -10,6 +10,7 @@
     <string name="map_button">На карте</string>
     <string name="last_result">Последний найденный объект</string>
     <string name="widget_hint">Кадастровый номер или адрес</string>
+    <string name="clear_input">Очистить поле</string>
     <string name="no_app_for_route">Не найдено приложение для навигации</string>
     <string name="saved_to_downloads">Сохранено в Загрузки</string>
     <string name="save_failed">Не удалось сохранить файл</string>

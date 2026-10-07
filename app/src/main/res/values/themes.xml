@@ -6,4 +6,12 @@
         <item name="android:navigationBarColor">@color/bg</item>
         <item name="android:colorAccent">@color/primary</item>
     </style>
+
+    <!-- Плавающее окно поиска из виджета: не на весь экран -->
+    <style name="Theme.RuRoad.SearchDialog" parent="android:Theme.Material.Dialog.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:colorAccent">@color/primary</item>
+        <item name="android:windowMinWidthMajor">100%</item>
+        <item name="android:windowMinWidthMinor">100%</item>
+    </style>
 </resources>
