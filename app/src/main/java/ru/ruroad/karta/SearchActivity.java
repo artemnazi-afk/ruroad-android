@@ -16,7 +16,6 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.widget.BaseAdapter;
-import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ListView;
@@ -24,15 +23,18 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
 /**
- * Экран поиска по кадастровому номеру или адресу (НСПД).
- * Из виджета открывается как плавающее окно (extra «dialog»=true):
- * после выбора результата карта НЕ открывается — данные показываются в виджете,
- * переход на карту остаётся кнопкой «На карте» в виджете.
+ * Плавающее окно ввода поиска (из виджета — extra «dialog»).
+ * Виджет не может принимать клавиатуру (ограничение RemoteViews), поэтому ввод здесь;
+ * результаты сохраняются в prefs и показываются в виджете, окно закрывается.
+ * Без виджета (из приложения) — обычный экран поиска со списком.
  */
 public class SearchActivity extends Activity {
 
@@ -46,7 +48,7 @@ public class SearchActivity extends Activity {
 
     private EditText input;
     private ImageButton clearBtn;
-    private Button btn;
+    private ImageButton btn;
     private ProgressBar progress;
     private TextView status;
     private ListView list;
@@ -63,14 +65,14 @@ public class SearchActivity extends Activity {
         setContentView(R.layout.activity_search);
 
         if (fromWidget) {
-            // плавающее окно поверх рабочего стола: сверху, не на весь экран
+            // компактное плавающее поле ввода сверху, вплотную к виджету
             Window w = getWindow();
             if (w != null) {
                 w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
                 w.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
                 WindowManager.LayoutParams lp = w.getAttributes();
                 lp.width = WindowManager.LayoutParams.MATCH_PARENT;
-                lp.height = (int) (getResources().getDisplayMetrics().heightPixels * 0.8f);
+                lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
                 lp.y = (int) (getResources().getDisplayMetrics().heightPixels * 0.06f);
                 w.setAttributes(lp);
             }
@@ -83,27 +85,33 @@ public class SearchActivity extends Activity {
         status = findViewById(R.id.search_status);
         list = findViewById(R.id.search_results);
 
-        adapter = new BaseAdapter() {
-            @Override public int getCount() { return results.size(); }
-            @Override public Object getItem(int i) { return results.get(i); }
-            @Override public long getItemId(int i) { return i; }
+        if (fromWidget) {
+            // из виджета: только поле ввода, результаты уходят в виджет
+            list.setVisibility(View.GONE);
+        } else {
+            adapter = new BaseAdapter() {
+                @Override public int getCount() { return results.size(); }
+                @Override public Object getItem(int i) { return results.get(i); }
+                @Override public long getItemId(int i) { return i; }
 
-            @Override
-            public View getView(int i, View view, android.view.ViewGroup parent) {
-                if (view == null) {
-                    view = getLayoutInflater().inflate(R.layout.item_result, parent, false);
+                @Override
+                public View getView(int i, View view, android.view.ViewGroup parent) {
+                    if (view == null) {
+                        view = getLayoutInflater().inflate(R.layout.item_result, parent, false);
+                    }
+                    NspdClient.Result r = results.get(i);
+                    TextView label = view.findViewById(R.id.item_label);
+                    TextView addr = view.findViewById(R.id.item_addr);
+                    TextView route = view.findViewById(R.id.item_route);
+                    label.setText(r.label.isEmpty() ? r.addr : r.label);
+                    addr.setText(NspdClient.shortAddress(r.addr));
+                    route.setOnClickListener(v -> openRoute(r));
+                    return view;
                 }
-                NspdClient.Result r = results.get(i);
-                TextView label = view.findViewById(R.id.item_label);
-                TextView addr = view.findViewById(R.id.item_addr);
-                TextView route = view.findViewById(R.id.item_route);
-                label.setText(r.label.isEmpty() ? r.addr : r.label);
-                addr.setText(NspdClient.shortAddress(r.addr));
-                route.setOnClickListener(v -> openRoute(r));
-                return view;
-            }
-        };
-        list.setAdapter(adapter);
+            };
+            list.setAdapter(adapter);
+            list.setOnItemClickListener((parent, view, position, id) -> pick(results.get(position)));
+        }
 
         btn.setOnClickListener(v -> runSearch());
         input.setOnEditorActionListener((v, actionId, event) -> {
@@ -124,18 +132,15 @@ public class SearchActivity extends Activity {
             input.requestFocus();
         });
 
-        list.setOnItemClickListener((parent, view, position, id) -> pick(results.get(position)));
-
-        // автоподставновка запроса из виджета/ярлыка
+        // автоподстановка запроса из виджета
         String preset = getIntent().getStringExtra("q");
         if (preset != null && !preset.isEmpty()) {
             input.setText(preset);
-            runSearch();
-        } else {
-            input.requestFocus();
-            InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-            if (imm != null) imm.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT);
+            input.setSelection(preset.length());
         }
+        input.requestFocus();
+        InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) imm.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT);
     }
 
     private void runSearch() {
@@ -146,7 +151,7 @@ public class SearchActivity extends Activity {
         progress.setVisibility(View.VISIBLE);
         status.setText(R.string.searching);
         results.clear();
-        adapter.notifyDataSetChanged();
+        if (adapter != null) adapter.notifyDataSetChanged();
 
         searchThread = new Thread(() -> {
             List<NspdClient.Result> found;
@@ -165,6 +170,12 @@ public class SearchActivity extends Activity {
                     status.setText(getString(R.string.search_error) + ": " + error);
                     return;
                 }
+                if (fromWidget) {
+                    // результаты — в виджет, окно закрываем
+                    saveResultsForWidget(q, out);
+                    finish();
+                    return;
+                }
                 results.addAll(out);
                 adapter.notifyDataSetChanged();
                 status.setText(results.isEmpty() ? getString(R.string.search_empty)
@@ -174,8 +185,38 @@ public class SearchActivity extends Activity {
         searchThread.start();
     }
 
+    /* результаты → prefs для виджета */
+    private void saveResultsForWidget(String q, List<NspdClient.Result> found) {
+        JSONArray arr = new JSONArray();
+        for (NspdClient.Result r : found) {
+            JSONObject o = new JSONObject();
+            try {
+                o.put("label", r.label);
+                o.put("addr", r.addr);
+                o.put("cat", r.cat);
+                o.put("cad", r.cad);
+                o.put("area", r.area);
+                o.put("status", r.status);
+                o.put("landCat", r.landCat);
+                o.put("perm", r.perm);
+                o.put("quarter", r.quarter);
+                if (r.hasGeom) {
+                    o.put("lat", r.lat);
+                    o.put("lon", r.lon);
+                }
+            } catch (Exception ignored) {}
+            arr.put(o);
+        }
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putString(SearchWidget.K_MODE, "results")
+                .putString(SearchWidget.K_QUERY, q)
+                .putString(SearchWidget.K_RESULTS, arr.toString())
+                .putInt(SearchWidget.K_PICKED, -1)
+                .apply();
+        SearchWidget.updateAll(this);
+    }
+
     private void pick(NspdClient.Result r) {
-        // сохранить для виджета
         SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
         p.edit()
                 .putString(KEY_LABEL, r.label)
@@ -186,13 +227,6 @@ public class SearchActivity extends Activity {
                 .apply();
         SearchWidget.updateAll(this);
 
-        if (fromWidget) {
-            // из виджета: результат показываем в виджете, карту не открываем
-            finish();
-            return;
-        }
-
-        // открыть карту
         Intent i = new Intent(this, MainActivity.class);
         if (!r.cad.isEmpty()) {
             i.putExtra("q", r.cad);

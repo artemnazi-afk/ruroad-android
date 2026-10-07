@@ -41,23 +41,23 @@
                 android:layout_gravity="end|center_vertical"
                 android:layout_marginEnd="8dp"
                 android:background="@null"
-                android:src="@android:drawable/ic_menu_close_clear_cancel"
+                android:src="@drawable/ic_close"
                 android:tint="@color/text_dim"
                 android:visibility="gone"
                 android:contentDescription="@string/clear_input" />
         </FrameLayout>
 
-        <Button
+        <ImageButton
             android:id="@+id/search_btn"
-            android:layout_width="wrap_content"
+            android:layout_width="44dp"
             android:layout_height="44dp"
             android:layout_marginStart="8dp"
             android:background="@drawable/btn_primary"
-            android:text="@string/search_button"
-            android:textColor="#14181F"
-            android:textStyle="bold"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp" />
+            android:src="@drawable/ic_search"
+            android:tint="#14181F"
+            android:scaleType="centerInside"
+            android:padding="11dp"
+            android:contentDescription="@string/search_button" />
     </LinearLayout>
 
     <ProgressBar

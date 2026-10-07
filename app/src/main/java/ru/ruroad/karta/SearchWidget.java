@@ -8,79 +8,187 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.view.View;
 import android.widget.RemoteViews;
-import android.widget.Toast;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.util.Locale;
 
 /**
- * Виджет 4×2: поле поиска → плавающее окно поиска; после выбора результата — карточка
- * с кнопками «На карте» и «Маршрут».
+ * Виджет: ввод — плавающее окно (RemoteViews не принимает клавиатуру),
+ * результаты и карточка объекта — в самом виджете.
+ * Строка навигации: назад (из карточки) / сброс (крестик).
  */
 public class SearchWidget extends AppWidgetProvider {
+
+    static final String ACTION_PICK  = "ru.ruroad.karta.WIDGET_PICK";
+    static final String ACTION_BACK  = "ru.ruroad.karta.WIDGET_BACK";
+    static final String ACTION_RESET = "ru.ruroad.karta.WIDGET_RESET";
+    static final String EXTRA_IDX = "idx";
+
+    static final String K_MODE = "mode";       // search | results | card
+    static final String K_QUERY = "query";
+    static final String K_RESULTS = "results"; // JSON array
+    static final String K_PICKED = "picked";
 
     static void updateAll(Context ctx) {
         AppWidgetManager mgr = AppWidgetManager.getInstance(ctx);
         ComponentName cn = new ComponentName(ctx, SearchWidget.class);
         int[] ids = mgr.getAppWidgetIds(cn);
         if (ids.length == 0) return;
+        mgr.notifyAppWidgetViewDataChanged(ids, R.id.widget_list);
         new SearchWidget().onUpdate(ctx, mgr, ids);
+    }
+
+    @Override
+    public void onReceive(Context ctx, Intent i) {
+        super.onReceive(ctx, i);
+        String a = i.getAction();
+        if (a == null) return;
+        SharedPreferences p = ctx.getSharedPreferences(SearchActivity.PREFS, Context.MODE_PRIVATE);
+        boolean changed = true;
+        switch (a) {
+            case ACTION_PICK:
+                p.edit().putInt(K_PICKED, i.getIntExtra(EXTRA_IDX, -1))
+                        .putString(K_MODE, "card").apply();
+                break;
+            case ACTION_BACK:
+                p.edit().putString(K_MODE,
+                        WidgetResultsService.readResults(ctx).length() > 0 ? "results" : "search").apply();
+                break;
+            case ACTION_RESET:
+                p.edit().putString(K_MODE, "search").putString(K_QUERY, "")
+                        .putString(K_RESULTS, "[]").putInt(K_PICKED, -1).apply();
+                break;
+            default:
+                changed = false;
+        }
+        if (changed) updateAll(ctx);
     }
 
     @Override
     public void onUpdate(Context ctx, AppWidgetManager mgr, int[] ids) {
         SharedPreferences p = ctx.getSharedPreferences(SearchActivity.PREFS, Context.MODE_PRIVATE);
-        String label = p.getString(SearchActivity.KEY_LABEL, "");
-        String addr = p.getString(SearchActivity.KEY_ADDR, "");
-        String cad = p.getString(SearchActivity.KEY_CAD, "");
-        String latS = p.getString(SearchActivity.KEY_LAT, "");
-        String lonS = p.getString(SearchActivity.KEY_LON, "");
-        boolean hasResult = !label.isEmpty() && !latS.isEmpty() && !lonS.isEmpty();
-        double lat = hasResult ? Double.parseDouble(latS) : Double.NaN;
-        double lon = hasResult ? Double.parseDouble(lonS) : Double.NaN;
+        String mode = p.getString(K_MODE, "search");
+        String query = p.getString(K_QUERY, "");
+        JSONArray results = WidgetResultsService.readResults(ctx);
+        int picked = p.getInt(K_PICKED, -1);
+        boolean hasResults = results.length() > 0;
+        boolean isCard = "card".equals(mode) && picked >= 0 && picked < results.length();
 
         for (int id : ids) {
             RemoteViews rv = new RemoteViews(ctx.getPackageName(), R.layout.widget_search);
 
-            // поиск из виджета — плавающее окно, не на весь экран
+            // поле и лупа — открывают плавающий ввод
             Intent search = new Intent(ctx, SearchActivity.class);
             search.putExtra(SearchActivity.EXTRA_DIALOG, true);
+            search.putExtra("q", query);
             PendingIntent searchPi = PendingIntent.getActivity(ctx, 0, search,
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-
             rv.setOnClickPendingIntent(R.id.widget_field, searchPi);
-            rv.setOnClickPendingIntent(R.id.widget_search_btn, searchPi);
+            rv.setOnClickPendingIntent(R.id.widget_find, searchPi);
+            rv.setTextViewText(R.id.widget_field,
+                    query.isEmpty() ? ctx.getString(R.string.widget_hint) : query);
+            rv.setTextColor(R.id.widget_field, query.isEmpty() ? 0xFF8B93A3 : 0xFFE8EAF0);
 
-            if (hasResult) {
-                rv.setViewVisibility(R.id.widget_search_mode, android.view.View.GONE);
-                rv.setViewVisibility(R.id.widget_result_mode, android.view.View.VISIBLE);
-                rv.setTextViewText(R.id.widget_result_label, label);
-                rv.setTextViewText(R.id.widget_result_addr, NspdClient.shortAddress(addr));
+            // строка навигации: назад / сброс
+            boolean dirty = !query.isEmpty() || hasResults || isCard;
+            rv.setViewVisibility(R.id.widget_chrome, dirty ? View.VISIBLE : View.GONE);
+            rv.setViewVisibility(R.id.widget_back, isCard ? View.VISIBLE : View.INVISIBLE);
+            rv.setTextViewText(R.id.widget_chrome_title,
+                    isCard ? ctx.getString(R.string.widget_card_title) : "");
+            rv.setOnClickPendingIntent(R.id.widget_back, broadcast(ctx, 10, ACTION_BACK));
+            rv.setOnClickPendingIntent(R.id.widget_reset, broadcast(ctx, 11, ACTION_RESET));
 
-                Intent map = new Intent(ctx, MainActivity.class);
-                if (!cad.isEmpty()) {
-                    map.putExtra("q", cad);
-                } else {
-                    map.putExtra("lat", lat);
-                    map.putExtra("lon", lon);
-                }
-                PendingIntent mapPi = PendingIntent.getActivity(ctx, 1, map,
-                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                rv.setOnClickPendingIntent(R.id.widget_map_btn, mapPi);
+            // список результатов (collection через RemoteViewsService)
+            boolean showList = !isCard && hasResults;
+            rv.setViewVisibility(R.id.widget_list, showList ? View.VISIBLE : View.GONE);
+            Intent svc = new Intent(ctx, WidgetResultsService.class);
+            svc.setData(Uri.parse("widget://list/" + id)); // отдельный factory на экземпляр
+            rv.setRemoteAdapter(R.id.widget_list, svc);
+            Intent pick = new Intent(ctx, SearchWidget.class).setAction(ACTION_PICK);
+            PendingIntent pickPi = PendingIntent.getBroadcast(ctx, 12, pick,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
+            rv.setPendingIntentTemplate(R.id.widget_list, pickPi);
 
-                String navLabel = label.isEmpty() ? addr : label;
-                Uri uri = Uri.parse(String.format(Locale.US, "geo:%f,%f?q=%f,%f(%s)",
-                        lat, lon, lat, lon, Uri.encode(navLabel)));
-                Intent route = new Intent(Intent.ACTION_VIEW, uri);
-                PendingIntent routePi = PendingIntent.getActivity(ctx, 2, route,
-                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                rv.setOnClickPendingIntent(R.id.widget_route_btn, routePi);
-            } else {
-                rv.setViewVisibility(R.id.widget_search_mode, android.view.View.VISIBLE);
-                rv.setViewVisibility(R.id.widget_result_mode, android.view.View.GONE);
+            // «ничего не найдено»
+            boolean showEmpty = !isCard && !hasResults && "results".equals(mode);
+            rv.setViewVisibility(R.id.widget_status, showEmpty ? View.VISIBLE : View.GONE);
+
+            // карточка объекта
+            rv.setViewVisibility(R.id.widget_card, isCard ? View.VISIBLE : View.GONE);
+            rv.setViewVisibility(R.id.widget_search_row, isCard ? View.GONE : View.VISIBLE);
+            if (isCard) {
+                JSONObject r = results.optJSONObject(picked);
+                if (r != null) fillCard(ctx, rv, r);
             }
 
             mgr.updateAppWidget(id, rv);
         }
+    }
+
+    private static PendingIntent broadcast(Context ctx, int rc, String action) {
+        Intent i = new Intent(ctx, SearchWidget.class).setAction(action);
+        return PendingIntent.getBroadcast(ctx, rc, i,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    /* карточка объекта — поля как в карточке на карте */
+    private static void fillCard(Context ctx, RemoteViews rv, JSONObject r) {
+        String cad = r.optString("cad");
+        if (cad.isEmpty()) cad = r.optString("label");
+        double lat = r.optDouble("lat", Double.NaN);
+        double lon = r.optDouble("lon", Double.NaN);
+        boolean hasGeom = !Double.isNaN(lat) && !Double.isNaN(lon);
+
+        rv.setTextViewText(R.id.wc_cad, cad.isEmpty() ? r.optString("addr") : cad);
+        rv.setTextViewText(R.id.wc_quarter,
+                ctx.getString(R.string.quarter_prefix) + r.optString("quarter"));
+        rv.setViewVisibility(R.id.wc_quarter,
+                r.optString("quarter").isEmpty() ? View.GONE : View.VISIBLE);
+        rv.setTextViewText(R.id.wc_badge, r.optString("cat"));
+        rv.setViewVisibility(R.id.wc_badge,
+                r.optString("cat").isEmpty() ? View.GONE : View.VISIBLE);
+
+        setField(rv, R.id.wc_row_addr, R.id.wc_addr, r.optString("addr"));
+        String area = r.optString("area");
+        if (!area.isEmpty() && area.matches("\\d+(\\.\\d+)?")) area = area + " м²";
+        setField(rv, R.id.wc_row_area, R.id.wc_area, area);
+        setField(rv, R.id.wc_row_status, R.id.wc_status, r.optString("status"));
+        setField(rv, R.id.wc_row_landcat, R.id.wc_landcat, r.optString("landCat"));
+        setField(rv, R.id.wc_row_perm, R.id.wc_perm, r.optString("perm"));
+
+        // «На карте»
+        Intent map = new Intent(ctx, MainActivity.class);
+        if (!cad.isEmpty()) {
+            map.putExtra("q", cad);
+        } else if (hasGeom) {
+            map.putExtra("lat", lat);
+            map.putExtra("lon", lon);
+        }
+        PendingIntent mapPi = PendingIntent.getActivity(ctx, 1, map,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        rv.setOnClickPendingIntent(R.id.wc_map, mapPi);
+
+        // маршрут (значок как в карте)
+        rv.setViewVisibility(R.id.wc_route, hasGeom ? View.VISIBLE : View.GONE);
+        rv.setViewVisibility(R.id.wc_route_head, hasGeom ? View.VISIBLE : View.GONE);
+        if (hasGeom) {
+            String label = cad.isEmpty() ? r.optString("addr") : cad;
+            Uri uri = Uri.parse(String.format(Locale.US, "geo:%f,%f?q=%f,%f(%s)",
+                    lat, lon, lat, lon, Uri.encode(label)));
+            Intent route = new Intent(Intent.ACTION_VIEW, uri);
+            PendingIntent routePi = PendingIntent.getActivity(ctx, 2, route,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            rv.setOnClickPendingIntent(R.id.wc_route, routePi);
+            rv.setOnClickPendingIntent(R.id.wc_route_head, routePi);
+        }
+    }
+
+    private static void setField(RemoteViews rv, int rowId, int valId, String v) {
+        rv.setViewVisibility(rowId, v.isEmpty() ? View.GONE : View.VISIBLE);
+        if (!v.isEmpty()) rv.setTextViewText(valId, v);
     }
 }
