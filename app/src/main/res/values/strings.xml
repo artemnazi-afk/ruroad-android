@@ -11,6 +11,15 @@
     <string name="last_result">Последний найденный объект</string>
     <string name="widget_hint">Кадастровый номер или адрес</string>
     <string name="clear_input">Очистить поле</string>
+    <string name="widget_card_title">Карточка объекта</string>
+    <string name="quarter_prefix">Кадастровый квартал: </string>
+    <string name="f_address">Адрес:</string>
+    <string name="f_area">Площадь:</string>
+    <string name="f_status">Статус:</string>
+    <string name="f_landcat">Категория земель:</string>
+    <string name="f_perm">Вид разрешённого использования:</string>
+    <string name="desc_back">Назад</string>
+    <string name="desc_reset">Сбросить</string>
     <string name="no_app_for_route">Не найдено приложение для навигации</string>
     <string name="saved_to_downloads">Сохранено в Загрузки</string>
     <string name="save_failed">Не удалось сохранить файл</string>

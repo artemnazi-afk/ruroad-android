@@ -51,6 +51,12 @@
                 android:resource="@xml/search_widget_info" />
         </receiver>
 
+        <!-- список результатов в виджете -->
+        <service
+            android:name=".WidgetResultsService"
+            android:permission="android.permission.BIND_REMOTEVIEWS"
+            android:exported="false" />
+
         <provider
             android:name=".ApkProvider"
             android:authorities="ru.ruroad.karta.apkprovider"

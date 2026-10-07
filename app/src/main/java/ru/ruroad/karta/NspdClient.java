@@ -30,6 +30,11 @@ public final class NspdClient {
         public String addr = "";
         public String cat = "";
         public String cad = "";
+        public String area = "";     // specified_area / area / declared_area
+        public String status = "";   // status / common_data_status
+        public String landCat = "";  // land_record_category_type
+        public String perm = "";     // permitted_use_established_by_document
+        public String quarter = "";  // quarter_cad_number
         public double lat = Double.NaN;
         public double lon = Double.NaN;
         public boolean hasGeom = false;
@@ -51,6 +56,11 @@ public final class NspdClient {
         String url = String.format(Locale.US, API, URLEncoder.encode(q, "UTF-8"));
         JSONObject resp = fetchJson(url);
         JSONArray feats = resp.optJSONArray("features");
+        if (feats == null) {
+            // некоторые ответы кладут features в data
+            JSONObject data = resp.optJSONObject("data");
+            if (data != null) feats = data.optJSONArray("features");
+        }
         List<JSONObject> list = new ArrayList<>();
         if (feats != null) {
             for (int i = 0; i < feats.length(); i++) {
@@ -282,6 +292,17 @@ public final class NspdClient {
         if (r.addr.isEmpty()) r.addr = r.label;
         r.cat = props.optString("categoryName", "");
         r.cad = o != null ? o.optString("cad_number", "") : "";
+        if (o != null) {
+            r.area = firstStr(o, "specified_area", "area", "declared_area");
+            r.status = firstStr(o, "status", "common_data_status");
+            r.landCat = o.optString("land_record_category_type", "");
+            r.perm = o.optString("permitted_use_established_by_document", "");
+            r.quarter = o.optString("quarter_cad_number", "");
+        }
+        if (r.quarter.isEmpty() && !r.cad.isEmpty()) {
+            String[] g = r.cad.split(":");
+            if (g.length >= 3) r.quarter = g[0] + ":" + g[1] + ":" + g[2];
+        }
         JSONObject geom = geomOpt != null ? geomOpt : f.optJSONObject("geometry");
         double[] ll = geomCenterLatLng(geom);
         if (ll != null) {
@@ -290,6 +311,17 @@ public final class NspdClient {
             r.hasGeom = true;
         }
         return r;
+    }
+
+    private static String firstStr(JSONObject o, String... keys) {
+        for (String k : keys) {
+            Object v = o.opt(k);
+            if (v != null && v != JSONObject.NULL) {
+                String s = String.valueOf(v).trim();
+                if (!s.isEmpty()) return s;
+            }
+        }
+        return "";
     }
 
     /* ---------- геометрия ---------- */
