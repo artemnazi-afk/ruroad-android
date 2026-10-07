@@ -62,7 +62,8 @@ public class SearchActivity extends Activity {
         fromWidget = getIntent().getBooleanExtra(EXTRA_DIALOG, false);
         if (fromWidget) setTheme(R.style.Theme_RuRoad_SearchDialog);
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_search);
+        setContentView(fromWidget ? R.layout.activity_search_dialog
+                                  : R.layout.activity_search);
 
         if (fromWidget) {
             // компактное плавающее поле ввода сверху, вплотную к виджету
@@ -71,7 +72,7 @@ public class SearchActivity extends Activity {
                 w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
                 w.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
                 WindowManager.LayoutParams lp = w.getAttributes();
-                lp.width = WindowManager.LayoutParams.MATCH_PARENT;
+                lp.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.95f);
                 lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
                 lp.y = (int) (getResources().getDisplayMetrics().heightPixels * 0.06f);
                 w.setAttributes(lp);
@@ -87,7 +88,7 @@ public class SearchActivity extends Activity {
 
         if (fromWidget) {
             // из виджета: только поле ввода, результаты уходят в виджет
-            list.setVisibility(View.GONE);
+            if (list != null) list.setVisibility(View.GONE);
         } else {
             adapter = new BaseAdapter() {
                 @Override public int getCount() { return results.size(); }
@@ -148,10 +149,11 @@ public class SearchActivity extends Activity {
         if (q.isEmpty()) return;
         hideKeyboard();
         if (searchThread != null) searchThread.interrupt();
-        progress.setVisibility(View.VISIBLE);
-        status.setText(R.string.searching);
+        if (progress != null) progress.setVisibility(View.VISIBLE);
+        if (status != null) status.setText(R.string.searching);
         results.clear();
         if (adapter != null) adapter.notifyDataSetChanged();
+        android.util.Log.i("RuRoad", "search start q='" + q + "' fromWidget=" + fromWidget);
 
         searchThread = new Thread(() -> {
             List<NspdClient.Result> found;
@@ -164,10 +166,11 @@ public class SearchActivity extends Activity {
             }
             final List<NspdClient.Result> out = found;
             final String error = err;
+            android.util.Log.i("RuRoad", "search done: " + out.size() + " results, err=" + error);
             runOnUiThread(() -> {
-                progress.setVisibility(View.GONE);
+                if (progress != null) progress.setVisibility(View.GONE);
                 if (error != null) {
-                    status.setText(getString(R.string.search_error) + ": " + error);
+                    if (status != null) status.setText(getString(R.string.search_error) + ": " + error);
                     return;
                 }
                 if (fromWidget) {

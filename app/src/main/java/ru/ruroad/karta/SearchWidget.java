@@ -77,6 +77,8 @@ public class SearchWidget extends AppWidgetProvider {
         int picked = p.getInt(K_PICKED, -1);
         boolean hasResults = results.length() > 0;
         boolean isCard = "card".equals(mode) && picked >= 0 && picked < results.length();
+        android.util.Log.i("RuRoad", "widget onUpdate: mode=" + mode + " results=" + results.length()
+                + " picked=" + picked + " widgets=" + ids.length);
 
         for (int id : ids) {
             RemoteViews rv = new RemoteViews(ctx.getPackageName(), R.layout.widget_search);
@@ -152,7 +154,7 @@ public class SearchWidget extends AppWidgetProvider {
         rv.setViewVisibility(R.id.wc_badge,
                 r.optString("cat").isEmpty() ? View.GONE : View.VISIBLE);
 
-        setField(rv, R.id.wc_row_addr, R.id.wc_addr, r.optString("addr"));
+        setField(rv, R.id.wc_row_addr, R.id.wc_addr, NspdClient.shortAddress(r.optString("addr")));
         String area = r.optString("area");
         if (!area.isEmpty() && area.matches("\\d+(\\.\\d+)?")) area = area + " м²";
         setField(rv, R.id.wc_row_area, R.id.wc_area, area);
