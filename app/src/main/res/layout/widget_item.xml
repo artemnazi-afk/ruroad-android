@@ -3,36 +3,60 @@
     android:id="@+id/widget_item_root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="10dp">
+    android:orientation="horizontal"
+    android:padding="10dp"
+    android:gravity="center_vertical"
+    android:descendantFocusability="blocksDescendants">
 
-    <TextView
-        android:id="@+id/wi_label"
-        android:layout_width="match_parent"
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_weight="1"
         android:layout_height="wrap_content"
-        android:textColor="@color/text_main"
-        android:textSize="13.5sp"
-        android:textStyle="bold"
-        android:singleLine="true"
-        android:ellipsize="end" />
+        android:orientation="vertical">
 
-    <TextView
-        android:id="@+id/wi_addr"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="1dp"
-        android:textColor="@color/text_dim"
-        android:textSize="12sp"
-        android:singleLine="true"
-        android:ellipsize="end" />
+        <TextView
+            android:id="@+id/wi_label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_main"
+            android:textSize="13.5sp"
+            android:textStyle="bold"
+            android:singleLine="true"
+            android:ellipsize="end" />
 
-    <TextView
-        android:id="@+id/wi_cat"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:textColor="#5FD08A"
-        android:textSize="11sp"
-        android:singleLine="true"
-        android:ellipsize="end" />
+        <TextView
+            android:id="@+id/wi_addr"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="1dp"
+            android:textColor="@color/text_dim"
+            android:textSize="12sp"
+            android:singleLine="true"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/wi_cat"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="#5FD08A"
+            android:textSize="11sp"
+            android:singleLine="true"
+            android:ellipsize="end" />
+    </LinearLayout>
+
+    <!-- маршрут в навигатор прямо из списка (как в демо) -->
+    <ImageButton
+        android:id="@+id/wi_route"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_marginStart="8dp"
+        android:background="@drawable/btn_secondary"
+        android:src="@drawable/ic_nav"
+        android:tint="@color/primary"
+        android:scaleType="centerInside"
+        android:padding="9dp"
+        android:visibility="gone"
+        android:contentDescription="@string/route_button" />
+
 </LinearLayout>

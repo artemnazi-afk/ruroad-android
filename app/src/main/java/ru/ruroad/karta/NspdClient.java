@@ -47,8 +47,10 @@ public final class NspdClient {
 
     /* ---------- запрос ---------- */
 
-    public static List<Result> search(String query) throws Exception {
-        String q = query == null ? "" : query.trim();
+    /** HTTP 404 от НСПД — объект не найден (отдельно от сетевых ошибок). */
+    public static class NotFound extends Exception {}
+
+    public static List<Result> search(String query) throws Exception {        String q = query == null ? "" : query.trim();
         if (q.isEmpty()) return new ArrayList<>();
         // кадастровый номер с любыми разделителями → «91:04:006001:368» (логика сайта)
         String norm = normalizeCadQuery(q);
@@ -100,6 +102,7 @@ public final class NspdClient {
                 InputStream is = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();
                 String body = readAll(is);
                 if (code >= 200 && code < 300) return new JSONObject(body);
+                if (code == 404) throw new NotFound(); // не найдено — ретрай бессмысленен
                 last = new Exception("HTTP " + code);
             } catch (Exception e) {
                 last = e;

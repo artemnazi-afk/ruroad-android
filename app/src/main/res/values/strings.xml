@@ -6,11 +6,14 @@
     <string name="searching">Поиск на НСПД…</string>
     <string name="search_error">Ошибка поиска</string>
     <string name="search_empty">Ничего не найдено</string>
+    <string name="not_found_cad">Не найдено.</string>
     <string name="route_button">Маршрут</string>
     <string name="map_button">На карте</string>
     <string name="last_result">Последний найденный объект</string>
     <string name="widget_hint">Кадастровый номер или адрес</string>
     <string name="clear_input">Очистить поле</string>
+    <string name="kb_num">123</string>
+    <string name="kb_abc">АБВ</string>
     <string name="widget_card_title">Карточка объекта</string>
     <string name="quarter_prefix">Кадастровый квартал: </string>
     <string name="f_address">Адрес:</string>

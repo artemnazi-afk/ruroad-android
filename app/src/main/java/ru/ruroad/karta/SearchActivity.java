@@ -51,6 +51,8 @@ public class SearchActivity extends Activity {
     private EditText input;
     private ImageButton clearBtn;
     private ImageButton btn;
+    private Button kbToggle;
+    private boolean kbManual;         // пользователь сам выбрал раскладку — авто-переключение off
     private ListView list;          // обычный режим
     private final ArrayList<NspdClient.Result> results = new ArrayList<>();
     private BaseAdapter adapter;
@@ -92,8 +94,9 @@ public class SearchActivity extends Activity {
             applyWindowSize();
 
             final android.view.View root = findViewById(android.R.id.content);
-            // лёгкое затемнение поверх системных обоев (они рисуются темой windowShowWallpaper)
-            root.setBackground(new ColorDrawable(0x40000000));
+            // лёгкое затемнение поверх системных обоев (они рисуются темой windowShowWallpaper):
+            // подложка ~90% прозрачная, рабочий стол просвечивает
+            root.setBackground(new ColorDrawable(0x1A000000));
             root.setClickable(true);
             root.setOnClickListener(v -> finish());
         }
@@ -136,18 +139,39 @@ public class SearchActivity extends Activity {
             return true;
         });
 
-        // крестик очистки: виден только когда поле не пустое
+        // крестик очистки: виден только когда поле не пустое.
+        // Начал вводить кадастровый номер (цифра) — клавиатура цифровая (тип phone).
+        // Первая буква — обратно текстовая. Кнопка 123/АБВ — ручное переключение раскладки.
         input.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
                 clearBtn.setVisibility(s.length() > 0 ? View.VISIBLE : View.GONE);
+                if (s.length() == 0) kbManual = false;          // поле очищено — авто-режим снова
+                if (kbManual && s.length() > 0) return;         // раскладку выбрал сам пользователь
+                setKbMode(s.length() > 0 && Character.isDigit(s.charAt(0)));
             }
             @Override public void afterTextChanged(Editable s) {}
         });
         clearBtn.setOnClickListener(v -> {
             input.setText("");
             input.requestFocus();
+            // виджет показывает этот запрос — очистили поле, очистилось и поле виджета
+            if (fromWidget) {
+                wQuery = "";
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                        .putString(SearchWidget.K_QUERY, "").apply();
+                SearchWidget.updateAll(this);
+            }
         });
+        kbToggle = findViewById(R.id.kb_toggle);
+        if (kbToggle != null) {
+            updateKbToggle();
+            kbToggle.setOnClickListener(v -> {
+                kbManual = true;
+                setKbMode(!isKbPhone());
+                input.requestFocus();
+            });
+        }
 
         if (fromWidget) {
             // восстанавливаем общее с виджетом состояние
@@ -221,6 +245,19 @@ public class SearchActivity extends Activity {
                     label.setText(r.optString("cad").isEmpty() ? r.optString("label") : r.optString("cad"));
                     addr.setText(NspdClient.shortAddress(r.optString("addr")));
                     cat.setText(r.optString("cat"));
+
+                    // маршрут прямо из списка (как в демо)
+                    ImageButton routeBtn = view.findViewById(R.id.wi_route);
+                    routeBtn.setFocusable(false); // иначе ворует клик строки — карточка не открывается
+                    double lat = r.optDouble("lat", Double.NaN);
+                    double lon = r.optDouble("lon", Double.NaN);
+                    if (!Double.isNaN(lat) && !Double.isNaN(lon)) {
+                        routeBtn.setVisibility(View.VISIBLE);
+                        routeBtn.setOnClickListener(v -> openRouteGeo(lat, lon,
+                                r.optString("cad").isEmpty() ? r.optString("label") : r.optString("cad")));
+                    } else {
+                        routeBtn.setVisibility(View.GONE);
+                    }
                 }
                 return view;
             }
@@ -228,17 +265,8 @@ public class SearchActivity extends Activity {
         dList.setAdapter(dAdapter);
         dList.setOnItemClickListener((parent, view, position, id) -> pickInDialog(position));
 
-        dBack.setOnClickListener(v -> {
+        findViewById(R.id.d_back).setOnClickListener(v -> {
             wMode = wResults.length() > 0 ? "results" : "search";
-            saveWidgetState();
-            showState();
-        });
-        findViewById(R.id.d_reset).setOnClickListener(v -> {
-            wMode = "search";
-            wQuery = "";
-            wResults = new JSONArray();
-            wPicked = -1;
-            input.setText("");
             saveWidgetState();
             showState();
         });
@@ -248,9 +276,9 @@ public class SearchActivity extends Activity {
     private void showState() {
         boolean hasResults = wResults.length() > 0;
         boolean isCard = "card".equals(wMode) && wPicked >= 0 && wPicked < wResults.length();
-        boolean dirty = !wQuery.isEmpty() || hasResults || isCard;
 
-        dChrome.setVisibility(dirty ? View.VISIBLE : View.GONE);
+        // строка навигации — только в карточке; в поиске/результатах место не занимает
+        dChrome.setVisibility(isCard ? View.VISIBLE : View.GONE);
         dBack.setVisibility(isCard ? View.VISIBLE : View.INVISIBLE);
         dTitle.setText(isCard ? getString(R.string.widget_card_title) : "");
         dSearchRow.setVisibility(isCard ? View.GONE : View.VISIBLE);
@@ -278,8 +306,9 @@ public class SearchActivity extends Activity {
         if (w == null) return;
         WindowManager.LayoutParams lp = w.getAttributes();
         lp.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.95f);
-        lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
-        lp.y = (int) (getResources().getDisplayMetrics().heightPixels * 0.06f);
+        // на весь экран: весь тап вне карточки попадает на подложку и закрывает окно
+        // (при WRAP_CONTENT касания ниже карточки уходили лаунчеру и окно не закрывалось)
+        lp.height = WindowManager.LayoutParams.MATCH_PARENT;
         w.setAttributes(lp);
     }
 
@@ -390,17 +419,27 @@ public class SearchActivity extends Activity {
         searchThread = new Thread(() -> {
             List<NspdClient.Result> found;
             String err = null;
+            boolean notFound = false;
             try {
                 found = NspdClient.search(q);
+            } catch (NspdClient.NotFound nf) {
+                found = new ArrayList<>();
+                notFound = true; // 404 — не «ошибка поиска», а пустой результат
             } catch (Exception e) {
                 found = new ArrayList<>();
                 err = e.getMessage();
             }
+            final boolean nf = notFound;
             final List<NspdClient.Result> out = found;
             final String error = err;
             android.util.Log.i("RuRoad", "search done: " + out.size() + " results, err=" + error);
             runOnUiThread(() -> {
                 if (fromWidget) {
+                    if (nf) {
+                        if (dProgressRow != null) dProgressRow.setVisibility(View.VISIBLE);
+                        if (dStatus != null) dStatus.setText(R.string.not_found_cad);
+                        return;
+                    }
                     if (error != null) {
                         if (dProgressRow != null) dProgressRow.setVisibility(View.VISIBLE);
                         if (dStatus != null) dStatus.setText(getString(R.string.search_error) + ": " + error);
@@ -413,6 +452,11 @@ public class SearchActivity extends Activity {
                     wResults = toJson(out);
                     saveWidgetState();
                     showState();
+                    return;
+                }
+                if (nf) {
+                    TextView st = findViewById(R.id.search_status);
+                    if (st != null) st.setText(R.string.not_found_cad);
                     return;
                 }
                 if (error != null) {
@@ -491,6 +535,17 @@ public class SearchActivity extends Activity {
         finish();
     }
 
+    /* маршрут по координатам из JSON-результата (кнопка в списке окна) */
+    private void openRouteGeo(double lat, double lon, String label) {
+        Uri uri = Uri.parse(String.format(Locale.US, "geo:%f,%f?q=%f,%f(%s)",
+                lat, lon, lat, lon, Uri.encode(label == null ? "" : label)));
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, uri));
+        } catch (Exception e) {
+            Toast.makeText(this, R.string.no_app_for_route, Toast.LENGTH_SHORT).show();
+        }
+    }
+
     private void openRoute(NspdClient.Result r) {
         if (!r.hasGeom) {
             Toast.makeText(this, R.string.no_app_for_route, Toast.LENGTH_SHORT).show();
@@ -509,5 +564,31 @@ public class SearchActivity extends Activity {
     private void hideKeyboard() {
         InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
         if (imm != null) imm.hideSoftInputFromWindow(input.getWindowToken(), 0);
+    }
+
+    /* ------ раскладка клавиатуры: авто (первая цифра/буква) + ручная кнопка 123/АБВ ------ */
+
+    private boolean isKbPhone() {
+        return (input.getInputType() & android.text.InputType.TYPE_MASK_CLASS)
+                == android.text.InputType.TYPE_CLASS_PHONE;
+    }
+
+    /** true — цифровая раскладка, false — буквенная. Без restartInput часть клавиатур не перестраивается. */
+    private void setKbMode(boolean phone) {
+        if (phone == isKbPhone()) return;
+        int sel = input.getSelectionStart();
+        input.setInputType(phone
+                ? android.text.InputType.TYPE_CLASS_PHONE
+                : android.text.InputType.TYPE_CLASS_TEXT);
+        input.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+        if (sel >= 0) input.setSelection(Math.min(sel, input.getText().length()));
+        InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) imm.restartInput(input);
+        updateKbToggle();
+    }
+
+    private void updateKbToggle() {
+        if (kbToggle == null) return;
+        kbToggle.setText(isKbPhone() ? getString(R.string.kb_abc) : getString(R.string.kb_num));
     }
 }

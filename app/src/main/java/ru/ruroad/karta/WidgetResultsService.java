@@ -54,6 +54,24 @@ public class WidgetResultsService extends RemoteViewsService {
                 rv.setTextViewText(R.id.wi_cat, r.optString("cat"));
                 Intent fill = new Intent().putExtra(SearchWidget.EXTRA_IDX, i);
                 rv.setOnClickFillInIntent(R.id.widget_item_root, fill);
+
+                // кнопка маршрута у результата — сразу в навигатор
+                double lat = r.optDouble("lat", Double.NaN);
+                double lon = r.optDouble("lon", Double.NaN);
+                boolean hasGeom = !Double.isNaN(lat) && !Double.isNaN(lon);
+                if (hasGeom) {
+                    String cad = r.optString("cad");
+                    rv.setViewVisibility(R.id.wi_route, android.view.View.VISIBLE);
+                    Intent fillRoute = new Intent()
+                            .putExtra(SearchWidget.EXTRA_IDX, i)
+                            .putExtra(SearchWidget.EXTRA_ROUTE, true)
+                            .putExtra("lat", lat)
+                            .putExtra("lon", lon)
+                            .putExtra("label", cad.isEmpty() ? label : cad);
+                    rv.setOnClickFillInIntent(R.id.wi_route, fillRoute);
+                } else {
+                    rv.setViewVisibility(R.id.wi_route, android.view.View.GONE);
+                }
             }
             return rv;
         }

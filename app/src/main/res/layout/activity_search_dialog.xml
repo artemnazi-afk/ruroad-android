@@ -1,12 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Плавающее окно из виджета: выглядит как сам виджет и раскрывается под контент.
-     Состояния: строка поиска → список результатов → карточка объекта. -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+     Состояния: строка поиска → список результатов → карточка объекта.
+     Корень FrameLayout: карточка сверху + кнопка смены клавиатуры в правом нижнем углу. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:background="@drawable/widget_bg"
     android:clickable="true"
+    android:layout_marginTop="52dp"
     android:padding="12dp">
 
     <!-- строка навигации: назад (из карточки) / сброс -->
@@ -38,17 +44,6 @@
             android:gravity="center"
             android:textColor="@color/text_dim"
             android:textSize="12sp" />
-
-        <ImageButton
-            android:id="@+id/d_reset"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
-            android:background="@drawable/field_bg"
-            android:src="@drawable/ic_close"
-            android:tint="@color/text_dim"
-            android:scaleType="centerInside"
-            android:padding="7dp"
-            android:contentDescription="@string/desc_reset" />
     </LinearLayout>
 
     <!-- строка поиска -->
@@ -73,6 +68,10 @@
                 android:textColorHint="@color/text_dim"
                 android:textColor="@color/text_main"
                 android:textSize="14sp"
+                android:autoSizeTextType="uniform"
+                android:autoSizeMinTextSize="11sp"
+                android:autoSizeMaxTextSize="14sp"
+                android:autoSizeStepGranularity="1sp"
                 android:paddingStart="14dp"
                 android:paddingEnd="44dp"
                 android:singleLine="true"
@@ -314,5 +313,20 @@
                 android:contentDescription="@string/route_button" />
         </LinearLayout>
     </LinearLayout>
+    </LinearLayout>
 
-</LinearLayout>
+    <!-- смена раскладки клавиатуры: цифровая / буквенная.
+         Плавающая кнопка в правом нижнем углу — прямо над клавиатурой -->
+    <Button
+        android:id="@+id/kb_toggle"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="16dp"
+        android:background="@drawable/field_bg"
+        android:text="@string/kb_num"
+        android:textColor="@color/text_dim"
+        android:textSize="13sp" />
+
+</FrameLayout>

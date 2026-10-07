@@ -27,6 +27,7 @@ public class SearchWidget extends AppWidgetProvider {
     static final String ACTION_BACK  = "ru.ruroad.karta.WIDGET_BACK";
     static final String ACTION_RESET = "ru.ruroad.karta.WIDGET_RESET";
     static final String EXTRA_IDX = "idx";
+    static final String EXTRA_ROUTE = "route";
 
     static final String K_MODE = "mode";       // search | results | card
     static final String K_QUERY = "query";
@@ -51,6 +52,11 @@ public class SearchWidget extends AppWidgetProvider {
         boolean changed = true;
         switch (a) {
             case ACTION_PICK:
+                if (i.getBooleanExtra(EXTRA_ROUTE, false)) {
+                    // кнопка маршрута у результата — сразу навигатор, состояние не меняем
+                    openRoute(ctx, i);
+                    return;
+                }
                 p.edit().putInt(K_PICKED, i.getIntExtra(EXTRA_IDX, -1))
                         .putString(K_MODE, "card").apply();
                 break;
@@ -71,19 +77,14 @@ public class SearchWidget extends AppWidgetProvider {
     @Override
     public void onUpdate(Context ctx, AppWidgetManager mgr, int[] ids) {
         SharedPreferences p = ctx.getSharedPreferences(SearchActivity.PREFS, Context.MODE_PRIVATE);
-        String mode = p.getString(K_MODE, "search");
         String query = p.getString(K_QUERY, "");
-        JSONArray results = WidgetResultsService.readResults(ctx);
-        int picked = p.getInt(K_PICKED, -1);
-        boolean hasResults = results.length() > 0;
-        boolean isCard = "card".equals(mode) && picked >= 0 && picked < results.length();
-        android.util.Log.i("RuRoad", "widget onUpdate: mode=" + mode + " results=" + results.length()
-                + " picked=" + picked + " widgets=" + ids.length);
+        android.util.Log.i("RuRoad", "widget onUpdate: query='" + query + "' widgets=" + ids.length);
 
         for (int id : ids) {
             RemoteViews rv = new RemoteViews(ctx.getPackageName(), R.layout.widget_search);
 
-            // поле и лупа — открывают плавающий ввод
+            // виджет — только строка ввода 4×1: результаты и карточка живут в плавающем окне
+            // (динамическая высота виджета невозможна — RemoteViews не даёт менять размер под контент)
             Intent search = new Intent(ctx, SearchActivity.class);
             search.putExtra(SearchActivity.EXTRA_DIALOG, true);
             search.putExtra("q", query);
@@ -95,38 +96,6 @@ public class SearchWidget extends AppWidgetProvider {
                     query.isEmpty() ? ctx.getString(R.string.widget_hint) : query);
             rv.setTextColor(R.id.widget_field, query.isEmpty() ? 0xFF8B93A3 : 0xFFE8EAF0);
 
-            // строка навигации: назад / сброс
-            boolean dirty = !query.isEmpty() || hasResults || isCard;
-            rv.setViewVisibility(R.id.widget_chrome, dirty ? View.VISIBLE : View.GONE);
-            rv.setViewVisibility(R.id.widget_back, isCard ? View.VISIBLE : View.INVISIBLE);
-            rv.setTextViewText(R.id.widget_chrome_title,
-                    isCard ? ctx.getString(R.string.widget_card_title) : "");
-            rv.setOnClickPendingIntent(R.id.widget_back, broadcast(ctx, 10, ACTION_BACK));
-            rv.setOnClickPendingIntent(R.id.widget_reset, broadcast(ctx, 11, ACTION_RESET));
-
-            // список результатов (collection через RemoteViewsService)
-            boolean showList = !isCard && hasResults;
-            rv.setViewVisibility(R.id.widget_list, showList ? View.VISIBLE : View.GONE);
-            Intent svc = new Intent(ctx, WidgetResultsService.class);
-            svc.setData(Uri.parse("widget://list/" + id)); // отдельный factory на экземпляр
-            rv.setRemoteAdapter(R.id.widget_list, svc);
-            Intent pick = new Intent(ctx, SearchWidget.class).setAction(ACTION_PICK);
-            PendingIntent pickPi = PendingIntent.getBroadcast(ctx, 12, pick,
-                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
-            rv.setPendingIntentTemplate(R.id.widget_list, pickPi);
-
-            // «ничего не найдено»
-            boolean showEmpty = !isCard && !hasResults && "results".equals(mode);
-            rv.setViewVisibility(R.id.widget_status, showEmpty ? View.VISIBLE : View.GONE);
-
-            // карточка объекта
-            rv.setViewVisibility(R.id.widget_card, isCard ? View.VISIBLE : View.GONE);
-            rv.setViewVisibility(R.id.widget_search_row, isCard ? View.GONE : View.VISIBLE);
-            if (isCard) {
-                JSONObject r = results.optJSONObject(picked);
-                if (r != null) fillCard(ctx, rv, r);
-            }
-
             mgr.updateAppWidget(id, rv);
         }
     }
@@ -135,6 +104,20 @@ public class SearchWidget extends AppWidgetProvider {
         Intent i = new Intent(ctx, SearchWidget.class).setAction(action);
         return PendingIntent.getBroadcast(ctx, rc, i,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    /* маршрут из списка результата — сразу в навигатор */
+    private static void openRoute(Context ctx, Intent i) {
+        double lat = i.getDoubleExtra("lat", Double.NaN);
+        double lon = i.getDoubleExtra("lon", Double.NaN);
+        if (Double.isNaN(lat) || Double.isNaN(lon)) return;
+        String label = i.getStringExtra("label");
+        if (label == null) label = "";
+        Uri uri = Uri.parse(String.format(Locale.US, "geo:%f,%f?q=%f,%f(%s)",
+                lat, lon, lat, lon, Uri.encode(label)));
+        Intent route = new Intent(Intent.ACTION_VIEW, uri)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try { ctx.startActivity(route); } catch (Exception ignored) {}
     }
 
     /* карточка объекта — поля как в карточке на карте */

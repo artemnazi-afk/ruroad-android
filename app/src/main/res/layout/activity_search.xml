@@ -47,6 +47,17 @@
                 android:contentDescription="@string/clear_input" />
         </FrameLayout>
 
+        <!-- переключение раскладки клавиатуры: цифровая / буквенная -->
+        <Button
+            android:id="@+id/kb_toggle"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/field_bg"
+            android:text="@string/kb_num"
+            android:textColor="@color/text_dim"
+            android:textSize="12sp" />
+
         <ImageButton
             android:id="@+id/search_btn"
             android:layout_width="44dp"
