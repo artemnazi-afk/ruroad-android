@@ -91,10 +91,10 @@ public final class NspdClient {
                 c.setRequestMethod("GET");
                 c.setConnectTimeout(15000);
                 c.setReadTimeout(15000);
-                c.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36");
+                c.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36");
                 c.setRequestProperty("Accept", "application/json");
-                // WAF НСПД без Referer отвечает 597 (фикс v2.5)
-                c.setRequestProperty("Referer", "https://nspd.gov.ru/");
+                // WAF НСПД пропускает только запросы с Referer (без него — HTTP 597)
+                c.setRequestProperty("Referer", "https://ruroad.pik-sev.ru/");
                 c.setRequestProperty("Accept-Language", "ru-RU,ru;q=0.9,en;q=0.8");
                 int code = c.getResponseCode();
                 InputStream is = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();

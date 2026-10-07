@@ -44,25 +44,31 @@ public class MainActivity extends Activity {
     private static final String TAG = "RuRoad";
     private static final String BASE = "https://ruroad.pik-sev.ru/karta/";
     private static final String DESKTOP_UA =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
 
-    /* JS-патч: fetch() к НСПД сначала гоним через Java-мост (терпимый TLS).
-       При любом сбое моста — откат на обычный fetch WebView (браузерный
-       TLS-отпечаток проходит защиту НСПД там, где Java получает 597). */
+    /* JS-патч: fetch() к НСПД сначала гоним через Java-мост (Cronet/Chromium-стек).
+       При сбое моста пробуем нативный fetch WebView; если упал и он —
+       показываем ИМЕННО ошибку моста (а не безликий TypeError), она диагностичнее. */
     private static final String NSPD_FETCH_PATCH =
             "(function(){" +
             "if(window.__nspdPatched)return;window.__nspdPatched=1;" +
-            "var cbMap={},counter=0;" +
+            "var cbMap={},counter=0,lastErr='';" +
+            "function nativeTry(cb){" +
+            "try{return window.__nspdOfetch(cb.input,cb.init);}catch(e){throw e;}}" +
             "window.__ruroadCb=function(id,ok,body){" +
             "var cb=cbMap[id];if(!cb)return;delete cbMap[id];" +
-            "if(ok){try{cb.resolve(new Response(body,{status:200,statusText:'OK',headers:{'Content-Type':'application/json'}}));}catch(e){cb.reject(e);}}" +
-            "else{try{cb.resolve(window.__nspdOfetch(cb.input,cb.init));}catch(e){cb.reject(e);}}};" +
+            "if(ok){lastErr='';try{cb.resolve(new Response(body,{status:200,statusText:'OK',headers:{'Content-Type':'application/json'}}));}catch(e){cb.reject(e);}return;}" +
+            "lastErr=body||'bridge failed';" +
+            "Promise.resolve().then(function(){return nativeTry(cb);}).then(" +
+            "function(r){cb.resolve(r);}," +
+            "function(e){cb.reject(new Error(lastErr+(e&&e.message?' | native: '+e.message:'')));});};" +
             "function bridged(url,input,init){" +
             "return new Promise(function(resolve,reject){" +
             "var id='cb'+(++counter);cbMap[id]={resolve:resolve,reject:reject,input:input,init:init};" +
             "try{window.RuRoadApp.httpGet(url,id);}catch(e){delete cbMap[id];reject(e);return;}" +
             "setTimeout(function(){var cb=cbMap[id];if(!cb)return;delete cbMap[id];" +
-            "try{cb.resolve(window.__nspdOfetch(cb.input,cb.init));}catch(e){cb.reject(e);}},25000);" +
+            "Promise.resolve().then(function(){return nativeTry(cb);}).then(" +
+            "function(r){cb.resolve(r);},function(e){cb.reject(new Error((lastErr||'bridge timeout')+(e&&e.message?' | native: '+e.message:'')));});},25000);" +
             "});}" +
             "window.__nspdOfetch=window.fetch.bind(window);" +
             "window.fetch=function(input,init){" +
@@ -74,9 +80,6 @@ public class MainActivity extends Activity {
     private WebView webView;
     private GeolocationPermissions.Callback geoCallback;
     private String geoOrigin;
-    private org.chromium.net.CronetEngine cronetEngine;
-    private final java.util.concurrent.ExecutorService cronetExecutor =
-            java.util.concurrent.Executors.newSingleThreadExecutor();
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
@@ -101,6 +104,14 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new KartaWebViewClient());
         webView.setWebChromeClient(new KartaChromeClient());
         webView.addJavascriptInterface(new Bridge(), "RuRoadApp");
+
+        // при обновлении версии чистим кэш WebView: в нём могли остаться
+        // отбитые WAF-ом ответы (597) за прежних сессий
+        android.content.SharedPreferences sp = getSharedPreferences("ruroad", MODE_PRIVATE);
+        if (!BuildConfig.VERSION_NAME.equals(sp.getString("av", ""))) {
+            webView.clearCache(true);
+            sp.edit().putString("av", BuildConfig.VERSION_NAME).apply();
+        }
 
         if (savedInstanceState == null) {
             loadFromIntent(getIntent());
@@ -184,6 +195,34 @@ public class MainActivity extends Activity {
             }
         }
 
+        /* WMS-тайлы НСПД идут через <img> в обход fetch-моста, и WebView может не
+           отправлять Referer — WAF отвечает 597, слой не рисуется. Перехватываем
+           все запросы к nspd.gov.ru/api/ и гоним их через Cronet с Referer. */
+        @Override
+        public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+            Uri uri = request.getUrl();
+            if ("nspd.gov.ru".equalsIgnoreCase(uri.getHost())
+                    && uri.getPath() != null && uri.getPath().startsWith("/api/")) {
+                try {
+                    NspdResult r = httpGetBlocking(uri.toString());
+                    if (r.code >= 200 && r.code < 300) {
+                        String mime = r.contentType != null
+                                ? r.contentType.split(";")[0].trim() : "application/octet-stream";
+                        java.util.Map<String, String> headers = new java.util.HashMap<>();
+                        headers.put("Access-Control-Allow-Origin", "*");
+                        // encoding null: тайлы — бинарные (PNG), кодировка текста не нужна
+                        return new WebResourceResponse(mime, null, 200, "OK", headers,
+                                new java.io.ByteArrayInputStream(r.body));
+                    }
+                    reportNspdError(uri.getPath(), new Exception("tile HTTP " + r.code));
+                } catch (Throwable t) {
+                    Log.w(TAG, "intercept nspd failed: " + t);
+                    reportNspdError(uri.getPath(), t instanceof Exception ? (Exception) t : new Exception(String.valueOf(t)));
+                }
+            }
+            return null;
+        }
+
         private boolean handleUri(WebView view, Uri uri) {
             String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase();
             String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
@@ -219,6 +258,47 @@ public class MainActivity extends Activity {
         }
     }
 
+    /* Синхронный GET к НСПД (терпимый TLS + Referer) для shouldInterceptRequest.
+       WebView вызывает перехватчик в фоновом потоке — блокировка допустима.
+       Cronet НЕ используем: при провайдерском MITM он не доверяет подменному
+       сертификату (ERR_CERT_AUTHORITY_INVALID), а весит 20 МБ. */
+    private static class NspdResult {
+        final int code;
+        final byte[] body;
+        final String contentType;
+        NspdResult(int code, byte[] body, String contentType) {
+            this.code = code; this.body = body; this.contentType = contentType;
+        }
+    }
+
+    private NspdResult httpGetBlocking(String url) throws Exception {
+        HttpURLConnection c = null;
+        try {
+            URL u = new URL(url);
+            HttpsURLConnection hs = (HttpsURLConnection) u.openConnection();
+            if (NspdTls.SOCKET_FACTORY != null) {
+                hs.setSSLSocketFactory(NspdTls.SOCKET_FACTORY);
+                hs.setHostnameVerifier(NspdTls.VERIFIER);
+            }
+            hs.setConnectTimeout(20000);
+            hs.setReadTimeout(20000);
+            hs.setRequestProperty("User-Agent", DESKTOP_UA);
+            hs.setRequestProperty("Accept", "*/*");
+            hs.setRequestProperty("Referer", "https://ruroad.pik-sev.ru/");
+            hs.setRequestProperty("Accept-Language", "ru-RU,ru;q=0.9");
+            c = hs;
+            int code = c.getResponseCode();
+            InputStream is = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();
+            byte[] body = readAllBytes(is);
+            String mime = c.getContentType();
+            c.disconnect();
+            c = null;
+            return new NspdResult(code, body, mime);
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
     /* Диагностика НСПД: тост с причиной сбоя (не чаще раза в 30 сек),
        чтобы по скриншоту было видно, что именно мешает запросу. */
     private long lastNspdToast;
@@ -227,7 +307,7 @@ public class MainActivity extends Activity {
         long now = System.currentTimeMillis();
         if (now - lastNspdToast < 30000) return;
         lastNspdToast = now;
-        String msg = e.getClass().getSimpleName();
+        String msg = "НСПД v" + BuildConfig.VERSION_NAME + ": " + e.getClass().getSimpleName();
         runOnUiThread(() ->
                 Toast.makeText(this, "НСПД: " + msg, Toast.LENGTH_LONG).show());
     }
@@ -366,9 +446,14 @@ public class MainActivity extends Activity {
             }
         }
 
+        /** JS-мост: ручная проверка обновлений APK (кнопка «обновить» в шапке). */
+        @JavascriptInterface
+        public void checkUpdate() {
+            runOnUiThread(() -> UpdateChecker.check(MainActivity.this, true));
+        }
+
         /** JS-мост: GET https://nspd.gov.ru/api/... в фоновом потоке, результат через __ruroadCb.
-         *  Путь 1: Cronet (Chromium-стек, QUIC) — проходит защиту НСПД как обычный Chrome.
-         *  Путь 2 (откат): HttpURLConnection с терпимым TLS. */
+         *  HttpURLConnection с терпимым TLS (провайдерский MITM) и Referer (требование WAF). */
         @JavascriptInterface
         public void httpGet(final String url, final String cbId) {
             URL u;
@@ -383,83 +468,7 @@ public class MainActivity extends Activity {
                 cb(cbId, false, "bad url");
                 return;
             }
-            try {
-                cronetGet(u, cbId);
-            } catch (Throwable t) {
-                // Cronet недоступен на устройстве — сразу откатываемся на HttpURLConnection
-                httpGetPlain(u, cbId);
-            }
-        }
-
-        private void cronetGet(final URL u, final String cbId) {
-            org.chromium.net.CronetEngine engine;
-            synchronized (MainActivity.this) {
-                if (cronetEngine == null) {
-                    cronetEngine = new org.chromium.net.CronetEngine.Builder(MainActivity.this)
-                            .enableHttp2(true)
-                            .enableQuic(true)
-                            .setUserAgent(DESKTOP_UA)
-                            .build();
-                }
-                engine = cronetEngine;
-            }
-            final java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
-            org.chromium.net.UrlRequest.Callback callback = new org.chromium.net.UrlRequest.Callback() {
-                @Override
-                public void onRedirectReceived(org.chromium.net.UrlRequest request,
-                                               org.chromium.net.UrlResponseInfo info, String newLocationUrl) {
-                    request.followRedirect();
-                }
-
-                @Override
-                public void onResponseStarted(org.chromium.net.UrlRequest request,
-                                              org.chromium.net.UrlResponseInfo info) {
-                    request.read(java.nio.ByteBuffer.allocateDirect(16384));
-                }
-
-                @Override
-                public void onReadCompleted(org.chromium.net.UrlRequest request,
-                                            org.chromium.net.UrlResponseInfo info, java.nio.ByteBuffer buffer) {
-                    buffer.flip();
-                    byte[] chunk = new byte[buffer.remaining()];
-                    buffer.get(chunk);
-                    bos.write(chunk, 0, chunk.length);
-                    buffer.clear();
-                    request.read(buffer);
-                }
-
-                @Override
-                public void onSucceeded(org.chromium.net.UrlRequest request,
-                                        org.chromium.net.UrlResponseInfo info) {
-                    int code = info != null && info.getHttpStatusCode() > 0 ? info.getHttpStatusCode() : 200;
-                    String body = new String(bos.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
-                    if (code >= 200 && code < 300) {
-                        cb(cbId, true, body);
-                    } else {
-                        Log.w(TAG, "nspd cronet HTTP " + code);
-                        if (u.getPath().contains("geoportal")) reportNspdError(u.getPath(), new Exception("HTTP " + code));
-                        cb(cbId, false, "HTTP " + code);
-                    }
-                }
-
-                @Override
-                public void onFailed(org.chromium.net.UrlRequest request,
-                                     org.chromium.net.UrlResponseInfo info,
-                                     final org.chromium.net.CronetException error) {
-                    Log.w(TAG, "nspd cronet failed: " + error.getMessage());
-                    // вероятно, TCP-fallback упёрся в MITM-сертификат — откат на терпимый TLS
-                    httpGetPlain(u, cbId);
-                }
-
-                @Override
-                public void onCanceled(org.chromium.net.UrlRequest request, org.chromium.net.UrlResponseInfo info) {
-                    httpGetPlain(u, cbId);
-                }
-            };
-            engine.newUrlRequestBuilder(u.toString(), callback, cronetExecutor)
-                    .addHeader("Accept", "*/*")
-                    .build()
-                    .start();
+            httpGetPlain(u, cbId);
         }
 
         private void httpGetPlain(final URL u, final String cbId) {
@@ -475,6 +484,8 @@ public class MainActivity extends Activity {
                     hs.setReadTimeout(20000);
                     hs.setRequestProperty("User-Agent", DESKTOP_UA);
                     hs.setRequestProperty("Accept", "*/*");
+                    hs.setRequestProperty("Referer", "https://ruroad.pik-sev.ru/");
+                    hs.setRequestProperty("Accept-Language", "ru-RU,ru;q=0.9");
                     c = hs;
                     int code = c.getResponseCode();
                     InputStream is = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();
@@ -483,7 +494,7 @@ public class MainActivity extends Activity {
                     if (code < 200 || code >= 300) {
                         Log.w(TAG, "nspd bridge HTTP " + code);
                         reportNspdError(u.getPath(), new Exception("HTTP " + code));
-                        cb(cbId, false, "HTTP " + code);
+                        cb(cbId, false, errText(new Exception("HTTP " + code)));
                         return;
                     }
                     cb(cbId, true, body);
@@ -491,12 +502,16 @@ public class MainActivity extends Activity {
                     Log.w(TAG, "nspd bridge failed: " + e);
                     if (u.getPath().contains("geoportal")) reportNspdError(u.getPath(), e);
                     if (c != null) c.disconnect();
-                    String err = e.getClass().getSimpleName();
-                    String msg = e.getMessage();
-                    if (msg != null && !msg.isEmpty()) err += ": " + msg;
-                    cb(cbId, false, err);
+                    cb(cbId, false, errText(e));
                 }
             }).start();
+        }
+
+        private String errText(Exception e) {
+            String err = "v" + BuildConfig.VERSION_NAME + " " + e.getClass().getSimpleName();
+            String msg = e.getMessage();
+            if (msg != null && !msg.isEmpty()) err += ": " + msg;
+            return err;
         }
 
         private void cb(String cbId, boolean ok, String body) {

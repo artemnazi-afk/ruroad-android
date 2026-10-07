@@ -32,6 +32,11 @@ public final class UpdateChecker {
     private UpdateChecker() {}
 
     public static void check(Activity act) {
+        check(act, false);
+    }
+
+    /** manual=true — вызов из UI (кнопка «обновить»): сообщаем результат Toast'ом. */
+    public static void check(Activity act, boolean manual) {
         new Thread(() -> {
             try {
                 JSONObject rel = fetchJson(API);
@@ -47,7 +52,10 @@ public final class UpdateChecker {
                         }
                     }
                 }
-                if (apkUrl == null || !isNewer(tag, BuildConfig.VERSION_NAME)) return;
+                if (apkUrl == null || !isNewer(tag, BuildConfig.VERSION_NAME)) {
+                    if (manual) toast(act, "У вас последняя версия");
+                    return;
+                }
                 String finalTag = tag;
                 String finalUrl = apkUrl;
                 act.runOnUiThread(() ->
@@ -58,9 +66,14 @@ public final class UpdateChecker {
                                 .setNegativeButton("Позже", null)
                                 .show());
             } catch (Exception e) {
-                // нет сети/лимит API — молча пропускаем
+                // нет сети/лимит API — в фоне молча, вручную сообщаем
+                if (manual) toast(act, "Не удалось проверить обновления");
             }
         }).start();
+    }
+
+    private static void toast(Activity act, String msg) {
+        act.runOnUiThread(() -> Toast.makeText(act, msg, Toast.LENGTH_SHORT).show());
     }
 
     private static boolean isNewer(String remote, String local) {
