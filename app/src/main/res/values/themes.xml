@@ -7,11 +7,12 @@
         <item name="android:colorAccent">@color/primary</item>
     </style>
 
-    <!-- Плавающее окно поиска из виджета: не на весь экран -->
-    <style name="Theme.RuRoad.SearchDialog" parent="android:Theme.Material.Dialog.NoActionBar">
-        <item name="android:windowBackground">@color/bg</item>
+    <!-- Плавающее окно поиска из виджета: floating-dialog, фон прозрачный, размер задаётся в коде под контент -->
+    <!-- Плавающее окно из виджета: живёт в отдельной задаче, поэтому вместо translucency
+         просим систему рисовать обои за окном (windowShowWallpaper). Размер в коде под контент. -->
+    <style name="Theme.RuRoad.SearchDialog" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowShowWallpaper">true</item>
         <item name="android:colorAccent">@color/primary</item>
-        <item name="android:windowMinWidthMajor">100%</item>
-        <item name="android:windowMinWidthMinor">100%</item>
     </style>
 </resources>

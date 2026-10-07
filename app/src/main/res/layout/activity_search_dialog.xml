@@ -1,13 +1,59 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Плавающее окно ввода из виджета: выглядит как сам виджет -->
+<!-- Плавающее окно из виджета: выглядит как сам виджет и раскрывается под контент.
+     Состояния: строка поиска → список результатов → карточка объекта. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:background="@drawable/widget_bg"
+    android:clickable="true"
     android:padding="12dp">
 
+    <!-- строка навигации: назад (из карточки) / сброс -->
     <LinearLayout
+        android:id="@+id/d_chrome"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="8dp"
+        android:visibility="gone">
+
+        <ImageButton
+            android:id="@+id/d_back"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:background="@drawable/field_bg"
+            android:src="@drawable/ic_back"
+            android:tint="@color/text_dim"
+            android:scaleType="centerInside"
+            android:padding="7dp"
+            android:contentDescription="@string/desc_back" />
+
+        <TextView
+            android:id="@+id/d_title"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:textColor="@color/text_dim"
+            android:textSize="12sp" />
+
+        <ImageButton
+            android:id="@+id/d_reset"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:background="@drawable/field_bg"
+            android:src="@drawable/ic_close"
+            android:tint="@color/text_dim"
+            android:scaleType="centerInside"
+            android:padding="7dp"
+            android:contentDescription="@string/desc_reset" />
+    </LinearLayout>
+
+    <!-- строка поиска -->
+    <LinearLayout
+        android:id="@+id/d_search_row"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
@@ -58,6 +104,215 @@
             android:scaleType="centerInside"
             android:padding="11dp"
             android:contentDescription="@string/search_button" />
+    </LinearLayout>
+
+    <!-- индикатор поиска -->
+    <LinearLayout
+        android:id="@+id/d_progress_row"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="10dp"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:id="@+id/search_progress"
+            android:layout_width="20dp"
+            android:layout_height="20dp" />
+
+        <TextView
+            android:id="@+id/search_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:text="@string/searching"
+            android:textColor="@color/text_dim"
+            android:textSize="13sp" />
+    </LinearLayout>
+
+    <!-- результаты поиска -->
+    <ListView
+        android:id="@+id/d_list"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:divider="@color/stroke"
+        android:dividerHeight="1dp"
+        android:visibility="gone" />
+
+    <!-- карточка объекта -->
+    <LinearLayout
+        android:id="@+id/d_card"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginTop="8dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/d_cad"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:textColor="#7FD3FF"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:singleLine="true"
+                android:ellipsize="end" />
+
+            <ImageButton
+                android:id="@+id/d_route_head"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:background="@null"
+                android:src="@drawable/ic_nav"
+                android:tint="@color/primary"
+                android:scaleType="centerInside"
+                android:padding="4dp"
+                android:contentDescription="@string/route_button" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/d_quarter"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:textColor="@color/text_dim"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/d_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:background="@drawable/badge_bg"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"
+            android:textColor="#7FD3FF"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/d_addr_l"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/f_address"
+            android:textColor="@color/text_dim"
+            android:textSize="10.5sp" />
+
+        <TextView
+            android:id="@+id/d_addr"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_main"
+            android:textSize="13sp"
+            android:maxLines="2"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/d_area_l"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:text="@string/f_area"
+            android:textColor="@color/text_dim"
+            android:textSize="10.5sp" />
+
+        <TextView
+            android:id="@+id/d_area"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_main"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/d_status_l"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:text="@string/f_status"
+            android:textColor="@color/text_dim"
+            android:textSize="10.5sp" />
+
+        <TextView
+            android:id="@+id/d_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_main"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/d_landcat_l"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:text="@string/f_landcat"
+            android:textColor="@color/text_dim"
+            android:textSize="10.5sp" />
+
+        <TextView
+            android:id="@+id/d_landcat"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_main"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/d_perm_l"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:text="@string/f_perm"
+            android:textColor="@color/text_dim"
+            android:textSize="10.5sp" />
+
+        <TextView
+            android:id="@+id/d_perm"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_main"
+            android:textSize="13sp"
+            android:maxLines="2"
+            android:ellipsize="end" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="10dp">
+
+            <Button
+                android:id="@+id/d_map"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="40dp"
+                android:background="@drawable/btn_secondary"
+                android:text="@string/map_button"
+                android:textColor="@color/text_main"
+                android:textSize="13sp" />
+
+            <ImageButton
+                android:id="@+id/d_route"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="40dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/btn_primary"
+                android:src="@drawable/ic_nav"
+                android:tint="#14181F"
+                android:scaleType="centerInside"
+                android:padding="10dp"
+                android:contentDescription="@string/route_button" />
+        </LinearLayout>
     </LinearLayout>
 
 </LinearLayout>
