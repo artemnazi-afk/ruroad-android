@@ -27,4 +27,7 @@
     <string name="saved_to_downloads">Сохранено в Загрузки</string>
     <string name="save_failed">Не удалось сохранить файл</string>
     <string name="download_started">Загрузка:</string>
+    <string name="download_done">Загрузка завершена</string>
+    <string name="open_file">Открыть</string>
+    <string name="share_file">Поделиться</string>
 </resources>

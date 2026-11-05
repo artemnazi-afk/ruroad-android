@@ -26,16 +26,43 @@ public class ApkProvider extends ContentProvider {
 
     @Override
     public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
+        String name = uri.getLastPathSegment();
+        // 1) файлы выгрузок из публичной папки Загрузки (шаринг после скачивания)
+        File pub = new File(
+                android.os.Environment.getExternalStoragePublicDirectory(
+                        android.os.Environment.DIRECTORY_DOWNLOADS), name);
+        if (pub.exists()) {
+            return ParcelFileDescriptor.open(pub, ParcelFileDescriptor.MODE_READ_ONLY);
+        }
+        // 2) скачанные APK обновлений из кэша
         File dir = getContext().getExternalCacheDir();
         if (dir == null) dir = getContext().getCacheDir();
-        File f = new File(dir, uri.getLastPathSegment());
+        File f = new File(dir, name);
         if (!f.exists()) throw new FileNotFoundException(f.getAbsolutePath());
         return ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY);
     }
 
     @Override
     public String getType(Uri uri) {
-        return "application/vnd.android.package-archive";
+        String name = uri.getLastPathSegment();
+        if (name != null) {
+            int dot = name.lastIndexOf('.');
+            if (dot >= 0) {
+                String ext = MimeTypeMap.getFileExtensionFromUrl(name.substring(dot + 1));
+                String mime = null;
+                if (ext != null && !ext.isEmpty()) {
+                    mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext.toLowerCase());
+                }
+                if (mime == null && ext != null) {
+                    if (ext.equalsIgnoreCase("dxf")) mime = "application/dxf";
+                    else if (ext.equalsIgnoreCase("csv")) mime = "text/csv";
+                    else if (ext.equalsIgnoreCase("txt")) mime = "text/plain";
+                    else if (ext.equalsIgnoreCase("zip")) mime = "application/zip";
+                }
+                if (mime != null) return mime;
+            }
+        }
+        return "application/octet-stream";
     }
 
     @Override

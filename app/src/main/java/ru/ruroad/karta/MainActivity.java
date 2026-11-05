@@ -3,8 +3,11 @@ package ru.ruroad.karta;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.PendingIntent;
 import android.content.ActivityNotFoundException;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.net.Uri;
@@ -153,6 +156,17 @@ public class MainActivity extends Activity {
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
         webView.saveState(outState);
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (downloadReceiver != null) {
+            try {
+                unregisterReceiver(downloadReceiver);
+            } catch (Exception ignored) { /* не зарегистрирован */ }
+            downloadReceiver = null;
+        }
+        super.onDestroy();
     }
 
     @Override
@@ -356,6 +370,15 @@ public class MainActivity extends Activity {
             pendingDownloadName = null;
             pendingDownloadMime = null;
         }
+        if (requestCode == REQ_POST_NOTIF) {
+            // право на уведомления не критично: отказ = просто без нашего уведомления
+            if (pendingDownloadUrl != null) {
+                enqueueSystemDownload(pendingDownloadUrl, pendingDownloadName, pendingDownloadMime);
+            }
+            pendingDownloadUrl = null;
+            pendingDownloadName = null;
+            pendingDownloadMime = null;
+        }
     }
 
     /* ---------- Скачивание файлов с сайта (выгрузки DXF/TXT/CSV и т.п.) ---------- */
@@ -367,9 +390,12 @@ public class MainActivity extends Activity {
      *  Fallback (старая ручная загрузка в MediaStore) — если менеджер
      *  недоступен или нет прав на старых Android (<29). */
     private static final int REQ_WRITE_STORAGE = 43;
+    private static final int REQ_POST_NOTIF = 44;
     private String pendingDownloadUrl;
     private String pendingDownloadName;
     private String pendingDownloadMime;
+    private long lastDownloadId = -1;
+    private android.content.BroadcastReceiver downloadReceiver;
 
     private void onDownloadStart(String url, String userAgent, String contentDisposition,
                                  String mimetype, long contentLength) {
@@ -384,6 +410,17 @@ public class MainActivity extends Activity {
             pendingDownloadMime = mimetype;
             requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
                     REQ_WRITE_STORAGE);
+            return;
+        }
+        // Android 13+: без этого права не покажем своё уведомление с «Поделиться»
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            pendingDownloadUrl = url;
+            pendingDownloadName = name;
+            pendingDownloadMime = mimetype;
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                    REQ_POST_NOTIF);
             return;
         }
         enqueueSystemDownload(url, name, mimetype);
@@ -403,12 +440,106 @@ public class MainActivity extends Activity {
             req.setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, name);
             req.addRequestHeader("User-Agent", DESKTOP_UA);
             req.addRequestHeader("Referer", BASE);
-            dm.enqueue(req);
+            lastDownloadId = dm.enqueue(req);
+            ensureDownloadReceiver();
             Toast.makeText(this, getString(R.string.download_started) + " " + name,
                     Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Log.e(TAG, "DownloadManager failed, fallback to manual", e);
             downloadManually(url, name, mimetype);
+        }
+    }
+
+    /** Следим за завершением нашей загрузки: шлём своё уведомление
+     *  с действиями «Открыть» и «Поделиться» (системное уведомление
+     *  DownloadManager действий не предлагает). */
+    private void ensureDownloadReceiver() {
+        if (downloadReceiver != null) return;
+        downloadReceiver = new android.content.BroadcastReceiver() {
+            @Override
+            public void onReceive(android.content.Context ctx, Intent intent) {
+                long id = intent.getLongExtra(
+                        android.app.DownloadManager.EXTRA_DOWNLOAD_ID, -1);
+                if (id != lastDownloadId || id == -1) return;
+                android.app.DownloadManager dm =
+                        (android.app.DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                android.app.DownloadManager.Query q =
+                        new android.app.DownloadManager.Query().setFilterById(id);
+                try (android.database.Cursor c = dm.query(q)) {
+                    if (!c.moveToFirst()) return;
+                    int status = c.getInt(c.getColumnIndexOrThrow(
+                            android.app.DownloadManager.COLUMN_STATUS));
+                    if (status != android.app.DownloadManager.STATUS_SUCCESSFUL) return;
+                    String title = c.getString(c.getColumnIndexOrThrow(
+                            android.app.DownloadManager.COLUMN_TITLE));
+                    String mime = c.getString(c.getColumnIndexOrThrow(
+                            android.app.DownloadManager.COLUMN_MEDIA_TYPE));
+                    showDownloadDoneNotification(title, mime);
+                } catch (Exception e) {
+                    Log.e(TAG, "download complete query failed", e);
+                }
+            }
+        };
+        IntentFilter f = new IntentFilter(
+                android.app.DownloadManager.ACTION_DOWNLOAD_COMPLETE);
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(downloadReceiver, f, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(downloadReceiver, f);
+        }
+    }
+
+    private void showDownloadDoneNotification(String title, String mime) {
+        try {
+            if (title == null || title.isEmpty()) title = "file";
+            File pub = new File(
+                    android.os.Environment.getExternalStoragePublicDirectory(
+                            android.os.Environment.DIRECTORY_DOWNLOADS), title);
+            if (!pub.exists()) return;
+            if (mime == null || mime.isEmpty()) mime = "application/octet-stream";
+            Uri content = ApkProvider.uriFor(this, pub);
+
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT
+                    | PendingIntent.FLAG_IMMUTABLE;
+
+            Intent open = new Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(content, mime)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            PendingIntent piOpen = PendingIntent.getActivity(this, 1, open, flags);
+
+            Intent share = new Intent(Intent.ACTION_SEND)
+                    .setType(mime)
+                    .putExtra(Intent.EXTRA_STREAM, content)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            Intent chooser = Intent.createChooser(share,
+                    getString(R.string.share_file) + ": " + title);
+            chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            PendingIntent piShare = PendingIntent.getActivity(this, 2, chooser, flags);
+
+            String channelId = "downloads";
+            if (Build.VERSION.SDK_INT >= 26) {
+                android.app.NotificationChannel ch = new android.app.NotificationChannel(
+                        channelId, getString(R.string.download_done),
+                        android.app.NotificationManager.IMPORTANCE_DEFAULT);
+                android.app.NotificationManager nm =
+                        (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                nm.createNotificationChannel(ch);
+            }
+            android.app.Notification.Builder b = Build.VERSION.SDK_INT >= 26
+                    ? new android.app.Notification.Builder(this, channelId)
+                    : new android.app.Notification.Builder(this);
+            b.setSmallIcon(android.R.drawable.stat_sys_download_done)
+                    .setContentTitle(getString(R.string.download_done))
+                    .setContentText(title)
+                    .setAutoCancel(true)
+                    .setContentIntent(piOpen)
+                    .addAction(0, getString(R.string.open_file), piOpen)
+                    .addAction(0, getString(R.string.share_file), piShare);
+            android.app.NotificationManager nm =
+                    (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            nm.notify((int) (lastDownloadId % 100000), b.build());
+        } catch (Exception e) {
+            Log.e(TAG, "download done notification failed", e);
         }
     }
 
