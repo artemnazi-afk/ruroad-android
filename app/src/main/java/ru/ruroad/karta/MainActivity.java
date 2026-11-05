@@ -343,17 +343,78 @@ public class MainActivity extends Activity {
             geoCallback.invoke(geoOrigin, granted, false);
             geoCallback = null;
         }
+        if (requestCode == REQ_WRITE_STORAGE) {
+            boolean granted = grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            if (granted && pendingDownloadUrl != null) {
+                enqueueSystemDownload(pendingDownloadUrl, pendingDownloadName, pendingDownloadMime);
+            } else if (pendingDownloadUrl != null) {
+                Toast.makeText(this, "Нет доступа к памяти — файл не скачан",
+                        Toast.LENGTH_LONG).show();
+            }
+            pendingDownloadUrl = null;
+            pendingDownloadName = null;
+            pendingDownloadMime = null;
+        }
     }
 
     /* ---------- Скачивание файлов с сайта (выгрузки DXF/TXT/CSV и т.п.) ---------- */
 
-    /** WebView отдаёт слушателю только URL — повторяем запрос GET'ом сами
-     *  (сайт отдаёт выгрузки и по GET, см. srv/convert.py) и сохраняем через
-     *  тот же saveBytes, что и картограмму: MediaStore «Загрузки», без прав. */
+    /** WebView отдаёт слушателю только URL — повторяем запрос GET'ом (сайт
+     *  отдаёт выгрузки и по GET, см. srv/convert.py). Качает системный
+     *  DownloadManager: индикатор прогресса и уведомление «Загрузка завершена»
+     *  в шторке, тап открывает файл, файл виден в «Файлы/Загрузки».
+     *  Fallback (старая ручная загрузка в MediaStore) — если менеджер
+     *  недоступен или нет прав на старых Android (<29). */
+    private static final int REQ_WRITE_STORAGE = 43;
+    private String pendingDownloadUrl;
+    private String pendingDownloadName;
+    private String pendingDownloadMime;
+
     private void onDownloadStart(String url, String userAgent, String contentDisposition,
                                  String mimetype, long contentLength) {
         String name = fileNameFromDisposition(contentDisposition);
         if (name == null || name.isEmpty()) name = guessName(mimetype == null ? "" : mimetype);
+        // Android 6..9: в общую папку Загрузки писать может только с правом
+        if (Build.VERSION.SDK_INT < 29
+                && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED) {
+            pendingDownloadUrl = url;
+            pendingDownloadName = name;
+            pendingDownloadMime = mimetype;
+            requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
+                    REQ_WRITE_STORAGE);
+            return;
+        }
+        enqueueSystemDownload(url, name, mimetype);
+    }
+
+    private void enqueueSystemDownload(String url, String name, String mimetype) {
+        try {
+            android.app.DownloadManager dm =
+                    (android.app.DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+            android.app.DownloadManager.Request req =
+                    new android.app.DownloadManager.Request(Uri.parse(url));
+            req.setTitle(name);
+            req.setDescription(getString(R.string.app_name));
+            if (mimetype != null && !mimetype.isEmpty()) req.setMimeType(mimetype);
+            req.setNotificationVisibility(
+                    android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            req.setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, name);
+            req.addRequestHeader("User-Agent", DESKTOP_UA);
+            req.addRequestHeader("Referer", BASE);
+            dm.enqueue(req);
+            Toast.makeText(this, getString(R.string.download_started) + " " + name,
+                    Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Log.e(TAG, "DownloadManager failed, fallback to manual", e);
+            downloadManually(url, name, mimetype);
+        }
+    }
+
+    /** Ручной fallback: качаем сами и кладём через MediaStore (как картограмма).
+     *  Индикатора в шторке нет — только тост результата. */
+    private void downloadManually(String url, String name, String mimetype) {
         final String fname = name;
         Toast.makeText(this, getString(R.string.download_started) + " " + fname,
                 Toast.LENGTH_SHORT).show();
