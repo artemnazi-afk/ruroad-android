@@ -474,6 +474,7 @@ public class MainActivity extends Activity {
                             android.app.DownloadManager.COLUMN_TITLE));
                     String mime = c.getString(c.getColumnIndexOrThrow(
                             android.app.DownloadManager.COLUMN_MEDIA_TYPE));
+                    runOnUiThread(() -> showDownloadDoneDialog(title, mime));
                     showDownloadDoneNotification(title, mime);
                 } catch (Exception e) {
                     Log.e(TAG, "download complete query failed", e);
@@ -489,15 +490,68 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** content:// URI скачанного файла в публичных Загрузках, null если файла нет. */
+    private Uri downloadedContentUri(String title) {
+        if (title == null || title.isEmpty()) return null;
+        File pub = new File(
+                android.os.Environment.getExternalStoragePublicDirectory(
+                        android.os.Environment.DIRECTORY_DOWNLOADS), title);
+        return pub.exists() ? ApkProvider.uriFor(this, pub) : null;
+    }
+
+    private void openDownloaded(String title, String mime) {
+        Uri content = downloadedContentUri(title);
+        if (content == null) return;
+        if (mime == null || mime.isEmpty()) mime = "application/octet-stream";
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(content, mime)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(this, R.string.no_app_for_route, Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void shareDownloaded(String title, String mime) {
+        Uri content = downloadedContentUri(title);
+        if (content == null) return;
+        if (mime == null || mime.isEmpty()) mime = "application/octet-stream";
+        Intent share = new Intent(Intent.ACTION_SEND)
+                .setType(mime)
+                .putExtra(Intent.EXTRA_STREAM, content)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            startActivity(Intent.createChooser(share,
+                    getString(R.string.share_file) + ": " + title));
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(this, R.string.no_app_for_route, Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /** Диалог в приложении сразу по завершении: Открыть / Поделиться.
+     *  Работает даже если уведомления запрещены (Android 13+). */
+    private void showDownloadDoneDialog(String title, String mime) {
+        if (isFinishing() || downloadedContentUri(title) == null) return;
+        if (title == null || title.isEmpty()) title = "file";
+        final String t = title;
+        final String m = (mime == null || mime.isEmpty()) ? "application/octet-stream" : mime;
+        new android.app.AlertDialog.Builder(this)
+                .setTitle(R.string.download_done)
+                .setMessage(title)
+                .setPositiveButton(R.string.share_file,
+                        (d, w) -> shareDownloaded(t, m))
+                .setNegativeButton(R.string.open_file,
+                        (d, w) -> openDownloaded(t, m))
+                .setNeutralButton(android.R.string.cancel, null)
+                .show();
+    }
+
     private void showDownloadDoneNotification(String title, String mime) {
         try {
             if (title == null || title.isEmpty()) title = "file";
-            File pub = new File(
-                    android.os.Environment.getExternalStoragePublicDirectory(
-                            android.os.Environment.DIRECTORY_DOWNLOADS), title);
-            if (!pub.exists()) return;
+            Uri content = downloadedContentUri(title);
+            if (content == null) return;
             if (mime == null || mime.isEmpty()) mime = "application/octet-stream";
-            Uri content = ApkProvider.uriFor(this, pub);
 
             int flags = PendingIntent.FLAG_UPDATE_CURRENT
                     | PendingIntent.FLAG_IMMUTABLE;
@@ -566,7 +620,10 @@ public class MainActivity extends Activity {
                 if (mime == null || mime.isEmpty()) mime = mimetype;
                 final String fm = (mime == null || mime.isEmpty())
                         ? "application/octet-stream" : mime;
-                runOnUiThread(() -> saveBytes(fname, fm, body));
+                runOnUiThread(() -> {
+                    saveBytes(fname, fm, body);
+                    showDownloadDoneDialog(fname, fm);
+                });
             } catch (Exception e) {
                 Log.e(TAG, "download failed: " + url, e);
                 runOnUiThread(() -> Toast.makeText(this, R.string.save_failed,
