@@ -104,6 +104,9 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new KartaWebViewClient());
         webView.setWebChromeClient(new KartaChromeClient());
         webView.addJavascriptInterface(new Bridge(), "RuRoadApp");
+        // скачивания (выгрузки DXF/TXT/CSV и т.п.): без слушателя WebView
+        // молча глотал attachment-ответы (баг владельца 06.11)
+        webView.setDownloadListener(this::onDownloadStart);
 
         // при обновлении версии чистим кэш WebView: в нём могли остаться
         // отбитые WAF-ом ответы (597) за прежних сессий
@@ -340,6 +343,61 @@ public class MainActivity extends Activity {
             geoCallback.invoke(geoOrigin, granted, false);
             geoCallback = null;
         }
+    }
+
+    /* ---------- Скачивание файлов с сайта (выгрузки DXF/TXT/CSV и т.п.) ---------- */
+
+    /** WebView отдаёт слушателю только URL — повторяем запрос GET'ом сами
+     *  (сайт отдаёт выгрузки и по GET, см. srv/convert.py) и сохраняем через
+     *  тот же saveBytes, что и картограмму: MediaStore «Загрузки», без прав. */
+    private void onDownloadStart(String url, String userAgent, String contentDisposition,
+                                 String mimetype, long contentLength) {
+        String name = fileNameFromDisposition(contentDisposition);
+        if (name == null || name.isEmpty()) name = guessName(mimetype == null ? "" : mimetype);
+        final String fname = name;
+        Toast.makeText(this, getString(R.string.download_started) + " " + fname,
+                Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            HttpURLConnection c = null;
+            try {
+                c = (HttpURLConnection) new URL(url).openConnection();
+                c.setConnectTimeout(20000);
+                c.setReadTimeout(60000);
+                c.setRequestProperty("User-Agent", DESKTOP_UA);
+                c.setRequestProperty("Accept", "*/*");
+                c.setRequestProperty("Referer", BASE);
+                int code = c.getResponseCode();
+                if (code < 200 || code >= 300) throw new Exception("HTTP " + code);
+                byte[] body = readAllBytes(c.getInputStream());
+                String mime = c.getContentType();
+                if (mime != null) mime = mime.split(";")[0].trim();
+                if (mime == null || mime.isEmpty()) mime = mimetype;
+                final String fm = (mime == null || mime.isEmpty())
+                        ? "application/octet-stream" : mime;
+                runOnUiThread(() -> saveBytes(fname, fm, body));
+            } catch (Exception e) {
+                Log.e(TAG, "download failed: " + url, e);
+                runOnUiThread(() -> Toast.makeText(this, R.string.save_failed,
+                        Toast.LENGTH_LONG).show());
+            } finally {
+                if (c != null) c.disconnect();
+            }
+        }).start();
+    }
+
+    /** Имя файла из Content-Disposition: поддерживаем filename*=UTF-8''... и
+     *  filename="..." (что шлёт srv/convert.py). */
+    private static String fileNameFromDisposition(String cd) {
+        if (cd == null) return null;
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("filename\\*=[Uu][Tt][Ff]-8''([^;]+)").matcher(cd);
+        if (m.find()) {
+            try {
+                return java.net.URLDecoder.decode(m.group(1), "UTF-8").trim();
+            } catch (Exception ignored) { /* падаем ниже, к filename= */ }
+        }
+        m = java.util.regex.Pattern.compile("filename=\"?([^\";]+)\"?").matcher(cd);
+        return m.find() ? m.group(1).trim() : null;
     }
 
     /* ---------- Скачивание картограммы (blob/data) ---------- */
